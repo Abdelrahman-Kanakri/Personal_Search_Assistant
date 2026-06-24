@@ -2,7 +2,7 @@ langgraph
 langgraph-checkpoint-sqlite
 langchain
 langchain-openai
-tavily-python
+langchain-tavily
 fastapi
 uvicorn[standard]
 sse-starlette
