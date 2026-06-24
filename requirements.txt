@@ -1,0 +1,15 @@
+langgraph
+langgraph-checkpoint-sqlite
+langchain
+langchain-openai
+tavily-python
+fastapi
+uvicorn[standard]
+sse-starlette
+pydantic>=2
+python-dotenv
+langsmith
+sentry-sdk
+structlog
+pytest
+httpx

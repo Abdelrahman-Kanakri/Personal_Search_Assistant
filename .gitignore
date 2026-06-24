@@ -1,0 +1,20 @@
+# desktop.ini
+.directory
+graphify-out/
+
+
+# Environment variables
+.env
+.env.bak
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Virtual env
+.venv/
+
+# IDEs
+.vscode
+
+# Cache
+models/
