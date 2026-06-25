@@ -11,7 +11,7 @@ class Finding(BaseModel):
     """A finding in the search results."""
     topic: str = Field(..., description="The topic of the finding.")
     content: list[str] = Field(..., description="The content of the finding.")
-    url: str = Field(..., description="The URL of the finding.")
+    url: Optional[str] = Field(None, description="The URL of the finding.")
     timestamp: datetime = Field(..., description="The timestamp of the finding.")
 
 class AgentState(TypedDict):

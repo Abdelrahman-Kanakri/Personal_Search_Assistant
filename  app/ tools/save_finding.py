@@ -5,7 +5,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 
 @tool
-def save_finding(findings: list[dict[str, str]],
+def save_findings(findings: list[dict[str, str]],
                 store: Annotated[Any, InjectedStore],
                 config:  RunnableConfig) -> str:
     """Saves a finding to the knowledge store.
