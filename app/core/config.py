@@ -1,3 +1,8 @@
+"""Application settings loaded from ``.env`` via pydantic-settings.
+
+Import the module-level ``settings`` singleton — never instantiate ``Settings``
+directly elsewhere, as that would bypass the singleton and re-read the file.
+"""
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 import os 

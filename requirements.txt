@@ -13,3 +13,7 @@ sentry-sdk
 structlog
 pytest
 httpx
+langchain-mistralai
+aiosqlite
+pydantic-settings
+langgraph-checkpoint-sqlite
