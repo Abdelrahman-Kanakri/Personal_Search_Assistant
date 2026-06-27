@@ -4,6 +4,7 @@
 to.  Fields that accumulate across turns use ``Annotated`` with an explicit
 reducer so LangGraph merges partial updates instead of overwriting previous values.
 """
+# ── Module Imports ─────────────────────────────────────────────────────────────────────
 import operator
 from datetime import datetime
 from typing import Annotated, Optional, TypedDict
@@ -12,7 +13,7 @@ from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-
+# ── State Classes ─────────────────────────────────────────────────────────────────────
 class Finding(BaseModel):
     """A single persisted research result."""
 

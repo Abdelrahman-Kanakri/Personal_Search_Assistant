@@ -4,6 +4,7 @@ Each node is a pure function: it receives the current ``AgentState``, performs
 one unit of work (LLM call, interrupt, or store write), and returns a partial-
 state dict.  Side effects are concentrated here so edge functions stay logic-only.
 """
+# ── Module Imports ─────────────────────────────────────────────────────────────────────
 import os
 from datetime import datetime
 
@@ -17,6 +18,7 @@ from app.core import settings
 from app.graph.state import AgentState
 from app.tools import save_findings, web_search
 
+# ── LLM Configuration ─────────────────────────────────────────────────────────────────────
 os.environ["MISTRAL_API_KEY"] = settings.MISTRAL_API_KEY
 
 tools = [web_search]
@@ -60,7 +62,8 @@ Provide your final answer using a clean, professional Markdown format according 
 * **Handling Empty Results:** If the search results do not provide enough evidence to answer the query, explicitly state that the information is insufficient rather than guessing or using outdated internal knowledge.
 """
 
-
+# ── Async Functions that allows mid execution pause ─────────────────────────────────────────────────────────────────────
+# Save findings node uses the save_findings tool to persist the AI findings.
 async def save_findings_node(
     state: AgentState,
     config: RunnableConfig,
@@ -80,6 +83,7 @@ async def save_findings_node(
     Returns:
         Empty dict — no state fields are updated after saving.
     """
+    # Extract the State fields needed to construct the finding.  The last message is the AI's final answer.
     findings = [
         {
             "topic": state["topic"],
@@ -90,7 +94,7 @@ async def save_findings_node(
     print(save_findings(findings=findings, store=store, config=config))
     return {}
 
-
+# Researcher node uses the LLM with tools to perform one research turn, which may result in tool calls or a plain-text answer.
 async def researcher_node(state: AgentState) -> dict[str, str]:
     
     """Run one LLM + tool-calling turn for the research task.
@@ -110,13 +114,14 @@ async def researcher_node(state: AgentState) -> dict[str, str]:
     """
     topic = state["topic"]
     response = await llm_with_tools.ainvoke(
-        [SystemMessage(content=web_search_instructions)]
-        + [HumanMessage(content=f"Search about this topic: {topic} ")]
-        + state["messages"]
+        # Uses the SystemMessage we defined above to instruct the LLM on how to perform web research.
+        [SystemMessage(content=web_search_instructions)] +
+        [HumanMessage(content=f"Search about this topic: {topic} ")] + 
+        state["messages"]
     )
     return {"messages": [response]}
 
-
+# Human-in-the-loop node uses LangGraph's interrupt to pause execution and surface the findings to the human for review.
 def hitl_node(state: AgentState, config: RunnableConfig) -> dict:
     """Pause execution and surface the latest findings to the human for review.
 

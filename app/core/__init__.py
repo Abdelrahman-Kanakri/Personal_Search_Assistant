@@ -1,4 +1,4 @@
 """Core application utilities: settings singleton and (future) logging."""
 from app.core.config import settings
-
-__all__ = ["settings"]
+from app.core.logging import get_logger
+__all__ = ["settings", "get_logger"]

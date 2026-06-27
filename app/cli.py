@@ -6,6 +6,8 @@ Runs a read-eval loop that:
     3. Surfaces any HITL interrupt for user approval.
     4. Resumes the graph until it reaches END.
 """
+# ── Module Imports ─────────────────────────────────────────────────────────────────────
+
 import asyncio
 import uuid
 
@@ -16,7 +18,7 @@ from app.streaming.events import resume_graph, stream_events
 # Hardcoded for single-user CLI; swap with real auth when needed.
 USER_ID = "default_user"
 
-
+# ── Main CLI Function ─────────────────────────────────────────────────────────────────────
 async def run_cli() -> None:
     """Main REPL: each iteration is one complete research run."""
     while True:
