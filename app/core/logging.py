@@ -1,17 +1,25 @@
 """Structured JSON logging configuration using structlog."""
 
-import os
-import sys
 import logging
 import structlog
 from structlog.types import FilteringBoundLogger
+from pathlib import Path
 
 # ── Configuration ───────────────────────────────────────────────────────────
-logging.basicConfig(level = logging.INFO,
-            filename = "logs/log.log",
-            filemode = "a",
-            format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            )
+LOG_DIR = Path("logs")
+LOG_DIR.mkdir(exist_ok=True)
+
+
+# Make the _json_formatter and _root_handler available for other modules if needed
+_json_formatter = logging.Formatter("%(message)s")
+# First, create the filehandler
+_root_handler = logging.FileHandler(LOG_DIR / "log.log")
+# then append the _json_formatter to the handler
+_root_handler.setFormatter(_json_formatter)
+
+# Append the root handler to the logger
+logging.basicConfig(level = logging.INFO, 
+                    handlers = [_root_handler],)
 
 structlog.configure(
     processors=[
@@ -37,29 +45,26 @@ structlog.configure(
 # ── Logger factory ──────────────────────────────────────────────────────────
 
 def get_logger(name: str | None = None) -> FilteringBoundLogger:
-    """Get a structured JSON logger instance with the specified name.
+    """Get a JSON-structured logger, optionally isolated to its own file.
 
     Args:
-        name: The name of the logger (usually __name__).
+        name: Logical channel (often __name__, but any string works). If given,
+            this channel's logs go only to '<name>.log', never to the shared file.
+            If omitted, logs go to the shared 'logs/log.log'.
 
     Returns:
-        A bound logger instance configured for JSON output.
+        A structlog BoundLogger — calling .info()/.error()/etc. on it renders JSON.
     """
     if name:
-        # 1. Get the underlying standard library logger
+        # Create a sperate logger for name based channel
         stdlib_logger = logging.getLogger(name)
         
-        # 2. Set the logging level explicitly so INFO logs aren't ignored
-        stdlib_logger.setLevel(logging.INFO)
-        
-        # 3. Stop this specific logger from sending duplicates to the main 'log.log' file
-        stdlib_logger.propagate = False
-        
-        # 4. Only add the handler if it hasn't been added yet
         if not stdlib_logger.handlers:
-            handler = logging.FileHandler(f"{name}.log")
-            handler.setFormatter(logging.Formatter("%(message)s"))
+            handler = logging.FileHandler(LOG_DIR / f"{name}.log")
+            # Append the _json_formatter to the handler as previous
+            handler.setFormatter(_json_formatter)
             stdlib_logger.addHandler(handler)
+            stdlib_logger.setLevel(logging.INFO)
+            stdlib_logger.propagate = False  # Prevent double logging to root logger
         
-    # FIX: Pass 'name' as a positional argument so structlog targets the correct stdlib logger
     return structlog.get_logger(name)

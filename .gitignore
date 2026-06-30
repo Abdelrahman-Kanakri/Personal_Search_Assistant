@@ -18,4 +18,5 @@ __pycache__/
 
 # Cache
 models/
-.claude/
+.claude/logs/
+logs/
