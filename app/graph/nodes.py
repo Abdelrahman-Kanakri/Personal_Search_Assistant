@@ -31,6 +31,44 @@ llm = ChatMistralAI(
 # bind_tools wires the tool schemas into the LLM so it can emit tool_call messages.
 llm_with_tools = llm.bind_tools(tools)
 
+
+jls_extract_var = """\
+# System Instructions: Memory Recall Agent
+
+You are an expert AI Research Agent. Your goal is to process an incoming `query` parameter, break it down into relevant sub-questions, retrieve applicable findings from previously saved research, fill any gaps with a live web search, and synthesize a factual, well-cited response.
+
+Follow this strict execution loop:
+
+## 1. Query Analysis & Deconstruction
+* Analyze the provided input `query`.
+* If the query is complex or broad, break it down into smaller, logical sub-questions.
+* For each sub-question, determine whether it is answerable from the saved findings below.
+
+## 2. Memory Retrieval & Gap-Filling Search
+* Review the provided saved research findings (below). Identify which findings are directly relevant, partially relevant, or unrelated to the current query.
+* If the new query overlaps with previous findings, reference them appropriately instead of re-searching for that sub-question.
+* **Fallback rule:** For any sub-question the saved findings do not cover — in whole or in part — you must call the web search tool for that specific sub-question rather than guessing or declaring insufficiency. Do not search for sub-questions memory already answers.
+
+## 3. Content Extraction & Evaluation
+* Evaluate both saved findings and any new search results for accuracy, relevance, and recency.
+* Extract key facts, statistics, and conflicting viewpoints if they exist.
+* **Grounding:** Do not assume or extrapolate beyond what is explicitly present in the saved findings or the retrieved search results. Do not invent findings, and do not invent URLs.
+
+## 4. Output Formatting & Synthesis
+Provide your final answer using a clean, professional Markdown format according to these rules:
+* **Executive Summary:** A 1-2 sentence high-level answer to the query.
+* **Detailed Findings:** Use clear headings, bullet points, and bold text for scannability.
+* **In-line Citations:** Cite every claim using plain numbered brackets inline, e.g. [1], [2]. Do NOT use structured reference objects — plain text only.
+* **Sources Section:** Conclude with a numbered list mapping to your inline citations. For each entry, state the source type explicitly:
+    - Memory-derived: `[n] Memory — <topic>, saved <date>`
+    - Search-derived: `[n] Web — <URL>`
+* **Handling Empty Results:** If neither saved findings nor a follow-up search provide enough evidence for a sub-question, explicitly state that the information is insufficient for that part rather than guessing.
+
+You have access to the following previously saved research findings for this user:
+{existing_memory}
+"""
+existing_memory_instruction = jls_extract_var
+
 web_search_instructions = """\
 # System Instructions: Web Research Agent
 
@@ -95,7 +133,9 @@ async def save_findings_node(
     return {}
 
 # Researcher node uses the LLM with tools to perform one research turn, which may result in tool calls or a plain-text answer.
-async def researcher_node(state: AgentState) -> dict[str, str]:
+async def researcher_node(state: AgentState, 
+                        store: BaseStore,
+                        config: RunnableConfig,) -> dict[str, str]:
     
     """Run one LLM + tool-calling turn for the research task.
 
@@ -112,11 +152,23 @@ async def researcher_node(state: AgentState) -> dict[str, str]:
         The ``add_messages`` reducer in ``AgentState`` appends rather than
         overwrites the history.
     """
+    # Get the topic and user_id from the state and config, respectively, to use in the search query.
     topic = state["topic"]
-    response = await llm_with_tools.ainvoke(
-        # Uses the SystemMessage we defined above to instruct the LLM on how to perform web research.
-        [SystemMessage(content=web_search_instructions)] +
-        [HumanMessage(content=f"Search about this topic: {topic} ")] + 
+    user_id = config["configurable"]["user_id"]
+    namespace = (user_id, "findings")
+    existing_memory = await store.asearch(namespace)
+    
+    # if there an existing memory, we will use it to inform the LLM's response. Otherwise, we will proceed with a web search.
+    if existing_memory:
+        response = await llm_with_tools.ainvoke(
+            [SystemMessage(content=existing_memory_instruction.format(existing_memory=existing_memory))] +
+            [HumanMessage(content=f"Search about this topic: {topic} ")] +
+            state["messages"]
+        )
+    else:
+        response = await llm_with_tools.ainvoke(
+            [SystemMessage(content=web_search_instructions)] +
+            [HumanMessage(content=f"Search about this topic: {topic} ")] +
         state["messages"]
     )
     return {"messages": [response]}
@@ -140,6 +192,14 @@ def hitl_node(state: AgentState, config: RunnableConfig) -> dict:
     topic = state["topic"]
 
     approved = interrupt(
-        f"Approve findings for '{topic}'? Reply 'yes' to save, or 'no' to search again."
+        f"Approve findings for '{topic}'? \nReply 'yes' to save, or 'no' to search again."
     )
+    if approved not in ("yes", "y"):
+        # Why this has been added
+        # because if the user has accepts the findings,
+        # the save_finding_tool dont care about what type of messages it recieves,
+        # so no crash, where the researcher_node uses a LLM, and LLM API does not accepts AIMessage as a response,
+        # in that case, we need to append a HumanMessage to the messages list, so that the researcher_node can continue to work with the LLM API.
+        rejection_message = HumanMessage(content="Human rejected the findings. Please refine your answer.")
+        return {"human_response": approved, "messages": [rejection_message]}
     return {"human_response": approved}

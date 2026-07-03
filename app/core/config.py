@@ -50,13 +50,9 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: str = Field(..., env="GOOGLE_API_KEY")
     GOOGLE_MODEL_NAME: str = Field(..., env="GOOGLE_MODEL_NAME")
 
-    # ── ChromaDB & Configurations ─────────────────────────────────────────────────────────────
-    # Chroma DB configurations
-    VECTOR_DATABASE_PATH: str = Field(..., env="VECTOR_DATABASE_PATH")
-    DISTANCE_THRESHOLD: float = Field(..., env="DISTANCE_THRESHOLD")
-    CHUNK_SIZE: int = Field(..., env="CHUNK_SIZE")
-    CHUNK_OVERLAP: int = Field(..., env="CHUNK_OVERLAP")
-    COLLECTION_NAME: str = Field(..., env="COLLECTION_NAME")
+    # ── PostgresSQL db configurations ─────────────────────────────────────────────────────────────
+    POSTGRES_PASSWORD: str = Field(..., env="POSTGRES_PASSWORD")
+    POSTGRES_URI: str = Field(..., env="POSTGRES_URI")
 
     # Workaround for pyarrow/curl OpenSSL pkcs11-engine segfault on this host.
     # Forces Arrow's bundled OpenSSL to skip the system openssl.cnf (which loads

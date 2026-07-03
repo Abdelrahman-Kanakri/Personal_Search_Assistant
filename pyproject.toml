@@ -13,6 +13,7 @@ dependencies = [
     "langchain-openai>=1.3.3",
     "langchain-tavily>=0.2.18",
     "langgraph>=1.2.6",
+    "langgraph-checkpoint-postgres>=3.1.0",
     "langgraph-checkpoint-sqlite>=3.1.0",
     "langsmith>=0.9.1",
     "pydantic>=2",
@@ -25,3 +26,7 @@ dependencies = [
     "tavily-python>=0.7.26",
     "uvicorn[standard]>=0.49.0",
 ]
+
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

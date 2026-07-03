@@ -14,7 +14,14 @@ import uuid
 from langchain_core.runnables import RunnableConfig
 
 from app.streaming.events import resume_graph, stream_events
+from app.core import settings
+import os
 
+os.environ["OPENSSL_CONF"] = settings.OPENSSL_CONF
+os.environ["LANGSMITH_API_KEY"] = settings.LANGSMITH_API_KEY
+os.environ["LANGSMITH_ENDPOINT"] = settings.LANGSMITH_ENDPOINT
+os.environ["LANGSMITH_TRACING"] = str(settings.LANGSMITH_TRACING)
+os.environ["LANGSMITH_PROJECT"] = settings.LANGSMITH_PROJECT
 # Hardcoded for single-user CLI; swap with real auth when needed.
 USER_ID = "default_user"
 
@@ -46,5 +53,5 @@ async def run_cli() -> None:
         print("\nResearch run completed.\n")
 
         again = input("Start a new research run? (yes/no): ").strip().lower()
-        if again != "yes":
+        if again not in ("yes", "y"):
             break

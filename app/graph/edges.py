@@ -44,6 +44,6 @@ def route_from_hitl(state: AgentState, config: RunnableConfig) -> str:
     Returns:
         ``"save_findings"`` if the human approved, otherwise ``"researcher_node"``.
     """
-    if state["human_response"] == "yes":
+    if state["human_response"] in ("yes", "y"):
         return "save_findings"
     return "researcher_node"
