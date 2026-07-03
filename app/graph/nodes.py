@@ -32,7 +32,7 @@ llm = ChatMistralAI(
 llm_with_tools = llm.bind_tools(tools)
 
 
-jls_extract_var = """\
+existing_memory_instruction = """\
 # System Instructions: Memory Recall Agent
 
 You are an expert AI Research Agent. Your goal is to process an incoming `query` parameter, break it down into relevant sub-questions, retrieve applicable findings from previously saved research, fill any gaps with a live web search, and synthesize a factual, well-cited response.
@@ -67,8 +67,7 @@ Provide your final answer using a clean, professional Markdown format according 
 You have access to the following previously saved research findings for this user:
 {existing_memory}
 """
-existing_memory_instruction = jls_extract_var
-
+ 
 web_search_instructions = """\
 # System Instructions: Web Research Agent
 
