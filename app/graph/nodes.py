@@ -31,14 +31,6 @@ llm = ChatMistralAI(
 # bind_tools wires the tool schemas into the LLM so it can emit tool_call messages.
 llm_with_tools = llm.bind_tools(tools)
 
-
-<<<<<<< HEAD
-# NOTE: name is a leftover from an IDE "extract variable" refactor — kept as-is
-# to avoid an unrelated rename in a docs-only pass. This is the system prompt
-# used when the store already has saved findings for the user (memory-first
-# path); see `web_search_instructions` below for the no-memory fallback prompt.
-=======
->>>>>>> 198f882917cfa5acd5271317efeb83134a7e7d1b
 existing_memory_instruction = """\
 # System Instructions: Memory Recall Agent
 
@@ -74,11 +66,7 @@ Provide your final answer using a clean, professional Markdown format according 
 You have access to the following previously saved research findings for this user:
 {existing_memory}
 """
-<<<<<<< HEAD
 
-=======
- 
->>>>>>> 198f882917cfa5acd5271317efeb83134a7e7d1b
 web_search_instructions = """\
 # System Instructions: Web Research Agent
 
