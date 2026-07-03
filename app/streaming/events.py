@@ -6,15 +6,15 @@ user.  ``resume_graph`` resumes a suspended run after the user has responded.
 """
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
+from langgraph.graph.state import CompiledStateGraph
 
-from app.graph import graph
 
-
-async def stream_events(user_input: str, config: RunnableConfig) -> str | None:
+async def stream_events(user_input: str, graph: CompiledStateGraph, config: RunnableConfig) -> str | None:
     """Start a research run and stream agent output until an interrupt or completion.
 
     Args:
         user_input: The research topic/query passed as ``state["topic"]``.
+        graph: The compiled LangGraph graph.
         config: Runnable config including ``thread_id`` and ``user_id``.
 
     Returns:
@@ -42,7 +42,7 @@ async def stream_events(user_input: str, config: RunnableConfig) -> str | None:
 
 
 
-async def resume_graph(human_response: str, config: RunnableConfig) -> str | None:
+async def resume_graph(human_response: str, graph: CompiledStateGraph, config: RunnableConfig) -> str | None:
     """Resume a graph that was suspended at a HITL interrupt.
 
     Wraps the human response in a ``Command(resume=...)`` so LangGraph can
@@ -50,6 +50,7 @@ async def resume_graph(human_response: str, config: RunnableConfig) -> str | Non
 
     Args:
         human_response: The user's approval decision (``'yes'`` / anything else).
+        graph: The compiled LangGraph graph.
         config: The same runnable config used in the original ``stream_events``
             call — the ``thread_id`` must match so the checkpointer loads the
             correct suspended state.

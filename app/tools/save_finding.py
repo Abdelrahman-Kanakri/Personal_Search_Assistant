@@ -7,7 +7,7 @@ from langgraph.prebuilt import InjectedStore
 from typing_extensions import Annotated
 
 # No @tool decorator is required here because this is a node, not a tool.
-def save_findings(
+async def save_findings(
     findings: list[dict[str, str]],
     store: Annotated[Any, InjectedStore],
     config: RunnableConfig,
@@ -31,7 +31,7 @@ def save_findings(
     namespace = (user_id, "findings")
 
     for finding in findings:
-        store.put(
+        await store.aput(
             namespace=namespace,
             key=f"{finding['topic']}_{finding['timestamp']}",
             value=finding,

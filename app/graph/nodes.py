@@ -32,7 +32,11 @@ llm = ChatMistralAI(
 llm_with_tools = llm.bind_tools(tools)
 
 
-jls_extract_var = """\
+# NOTE: name is a leftover from an IDE "extract variable" refactor — kept as-is
+# to avoid an unrelated rename in a docs-only pass. This is the system prompt
+# used when the store already has saved findings for the user (memory-first
+# path); see `web_search_instructions` below for the no-memory fallback prompt.
+existing_memory_instruction = """\
 # System Instructions: Memory Recall Agent
 
 You are an expert AI Research Agent. Your goal is to process an incoming `query` parameter, break it down into relevant sub-questions, retrieve applicable findings from previously saved research, fill any gaps with a live web search, and synthesize a factual, well-cited response.
@@ -67,7 +71,6 @@ Provide your final answer using a clean, professional Markdown format according 
 You have access to the following previously saved research findings for this user:
 {existing_memory}
 """
-existing_memory_instruction = jls_extract_var
 
 web_search_instructions = """\
 # System Instructions: Web Research Agent
@@ -129,7 +132,7 @@ async def save_findings_node(
             "timestamp": str(datetime.now()),
         }
     ]
-    print(save_findings(findings=findings, store=store, config=config))
+    print(await save_findings(findings=findings, store=store, config=config))
     return {}
 
 # Researcher node uses the LLM with tools to perform one research turn, which may result in tool calls or a plain-text answer.

@@ -8,11 +8,11 @@ Runs a read-eval loop that:
 """
 # ── Module Imports ─────────────────────────────────────────────────────────────────────
 
-import asyncio
+
 import uuid
 
 from langchain_core.runnables import RunnableConfig
-
+from langgraph.graph.state import CompiledStateGraph
 from app.streaming.events import resume_graph, stream_events
 from app.core import settings
 import os
@@ -26,7 +26,7 @@ os.environ["LANGSMITH_PROJECT"] = settings.LANGSMITH_PROJECT
 USER_ID = "default_user"
 
 # ── Main CLI Function ─────────────────────────────────────────────────────────────────────
-async def run_cli() -> None:
+async def run_cli(graph: CompiledStateGraph) -> None:
     """Main REPL: each iteration is one complete research run."""
     while True:
         # Fresh thread_id per run keeps checkpointer state independent across topics.
@@ -43,12 +43,12 @@ async def run_cli() -> None:
             break
 
         # stream_result is non-None only when the graph pauses at a HITL interrupt.
-        stream_result = await stream_events(user_input, config)
+        stream_result = await stream_events(user_input, graph, config)
         while stream_result is not None:
             print(f"\n{stream_result}")
             human_response = input("Your response: ").strip()
             print("\nResuming...")
-            stream_result = await resume_graph(human_response, config)
+            stream_result = await resume_graph(human_response, graph, config)
 
         print("\nResearch run completed.\n")
 
