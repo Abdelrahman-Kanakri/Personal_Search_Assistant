@@ -3,11 +3,13 @@
 Each function inspects ``AgentState`` and returns the name of the next node to
 execute.  No side effects — pure routing logic only.
 """
+
 # ── Module Imports ─────────────────────────────────────────────────────────────────────
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 
 from app.graph.state import AgentState
+
 
 # ─── Router functions  ───────────────────────────────────────────────────────────────────────────
 # Route from research to either web search (if tool calls are pending) or human review (if the LLM produced a plain-text answer).
@@ -29,6 +31,7 @@ def route_from_research(state: AgentState, config: RunnableConfig) -> str:
     if isinstance(last_message, AIMessage) and last_message.tool_calls:
         return "web_search"
     return "hitl_node"
+
 
 # Route from hitl to either researcher_node (if the human rejected the findings) or save_findings (if the human approved).
 def route_from_hitl(state: AgentState, config: RunnableConfig) -> str:

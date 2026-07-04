@@ -4,12 +4,15 @@
 hits a HITL interrupt, returning the interrupt payload so the CLI can prompt the
 user.  ``resume_graph`` resumes a suspended run after the user has responded.
 """
+
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
 from langgraph.graph.state import CompiledStateGraph
 
 
-async def stream_events(user_input: str, graph: CompiledStateGraph, config: RunnableConfig) -> str | None:
+async def stream_events(
+    user_input: str, graph: CompiledStateGraph, config: RunnableConfig
+) -> str | None:
     """Start a research run and stream agent output until an interrupt or completion.
 
     Args:
@@ -22,18 +25,18 @@ async def stream_events(user_input: str, graph: CompiledStateGraph, config: Runn
         or ``None`` if the graph ran to completion without interrupting.
     """
     async for event in graph.astream_events(
-            {"topic": user_input, "messages": []},
-            config,
-            version="v2",
-        ):
-            if event["event"] == "on_chat_model_stream":
-                chunk = event["data"]["chunk"]
-                if isinstance(chunk.content, str) and chunk.content:
-                    print(chunk.content, end="", flush=True)
-                elif isinstance(chunk.content, list):
-                    for part in chunk.content:
-                        if isinstance(part, dict) and part.get("type") == "text":
-                            print(part["text"], end="", flush=True)
+        {"topic": user_input, "messages": []},
+        config,
+        version="v2",
+    ):
+        if event["event"] == "on_chat_model_stream":
+            chunk = event["data"]["chunk"]
+            if isinstance(chunk.content, str) and chunk.content:
+                print(chunk.content, end="", flush=True)
+            elif isinstance(chunk.content, list):
+                for part in chunk.content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        print(part["text"], end="", flush=True)
 
     state = await graph.aget_state(config)
     if state.next:
@@ -41,8 +44,9 @@ async def stream_events(user_input: str, graph: CompiledStateGraph, config: Runn
     return None
 
 
-
-async def resume_graph(human_response: str, graph: CompiledStateGraph, config: RunnableConfig) -> str | None:
+async def resume_graph(
+    human_response: str, graph: CompiledStateGraph, config: RunnableConfig
+) -> str | None:
     """Resume a graph that was suspended at a HITL interrupt.
 
     Wraps the human response in a ``Command(resume=...)`` so LangGraph can
@@ -60,10 +64,9 @@ async def resume_graph(human_response: str, graph: CompiledStateGraph, config: R
         the graph ran to completion.
     """
     async for event in graph.astream_events(
-        Command(resume=human_response),
-        config, version="v2"
+        Command(resume=human_response), config, version="v2"
     ):
-        if event["event"] == "on_chat_model_stream": 
+        if event["event"] == "on_chat_model_stream":
             chunk = event["data"]["chunk"]
             if isinstance(chunk.content, str) and chunk.content:
                 print(chunk.content, end="", flush=True)

@@ -5,6 +5,7 @@ graph topology (nodes, edges, compile). The caller owns the connection
 lifecycle — see ``main.py``, which opens both via ``async with`` for the
 lifetime of the CLI session before calling this function.
 """
+
 # ── Module Imports ─────────────────────────────────────────────────────────────────────
 from langgraph.store.base import BaseStore
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -17,13 +18,12 @@ from app.graph.nodes import hitl_node, researcher_node, save_findings_node
 from app.graph.state import AgentState
 from app.tools import web_search
 
+
 # ── Graph Builder ─────────────────────────────────────────────────────────────────────
 def build_graph(
-                store: BaseStore,
-                checkpointer: BaseCheckpointSaver
-                )-> CompiledStateGraph:
-    """Return the compiled research-assistant graph.
-    """
+    store: BaseStore, checkpointer: BaseCheckpointSaver
+) -> CompiledStateGraph:
+    """Return the compiled research-assistant graph."""
     builder = StateGraph(AgentState)
     # ── Add Nodes ──
     builder.add_node("researcher_node", researcher_node)
@@ -39,6 +39,5 @@ def build_graph(
     builder.add_edge("save_findings", END)
 
     # ── Compile the Graph  ──
-    graph = builder.compile(checkpointer = checkpointer,
-                            store = store)
+    graph = builder.compile(checkpointer=checkpointer, store=store)
     return graph

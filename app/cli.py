@@ -8,7 +8,6 @@ Runs a read-eval loop that:
 """
 # ── Module Imports ─────────────────────────────────────────────────────────────────────
 
-
 import uuid
 
 from langchain_core.runnables import RunnableConfig
@@ -25,6 +24,7 @@ os.environ["LANGSMITH_PROJECT"] = settings.LANGSMITH_PROJECT
 # Hardcoded for single-user CLI; swap with real auth when needed.
 USER_ID = "default_user"
 
+
 # ── Main CLI Function ─────────────────────────────────────────────────────────────────────
 async def run_cli(graph: CompiledStateGraph) -> None:
     """Main REPL: each iteration is one complete research run."""
@@ -34,7 +34,7 @@ async def run_cli(graph: CompiledStateGraph) -> None:
         config: RunnableConfig = {
             "configurable": {
                 "thread_id": thread_id,
-                "user_id": USER_ID,   # required by save_findings to scope the store namespace
+                "user_id": USER_ID,  # required by save_findings to scope the store namespace
             }
         }
 

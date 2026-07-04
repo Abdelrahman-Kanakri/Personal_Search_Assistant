@@ -4,6 +4,7 @@ Wires the Postgres-backed store (cross-session memory) and checkpointer
 (per-run graph state) into the compiled LangGraph graph, then hands off to
 the interactive REPL in ``app.cli``.
 """
+
 import asyncio
 from app.cli import run_cli
 
@@ -28,13 +29,14 @@ async def main() -> None:
     """
     async with (
         AsyncPostgresStore.from_conn_string(conn_string) as store,
-        AsyncPostgresSaver.from_conn_string(conn_string) as checkpointer
+        AsyncPostgresSaver.from_conn_string(conn_string) as checkpointer,
     ):
         # Create the underlying Postgres tables/indexes on first run.
         await store.setup()
         await checkpointer.setup()
         graph = build_graph(store, checkpointer)
         await run_cli(graph)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

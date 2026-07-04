@@ -3,12 +3,13 @@
 Import the module-level ``settings`` singleton — never instantiate ``Settings``
 directly elsewhere, as that would bypass the singleton and re-read the file.
 """
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
-import os 
+import os
+
 
 class Settings(BaseSettings):
-    
     """Typed application settings, loaded from ``.env`` at import time.
 
     Fields without a default (the API keys and model names) are *required* —
@@ -18,11 +19,9 @@ class Settings(BaseSettings):
     overridden via ``.env`` but are safe to omit. The module-level ``settings``
     singleton below is what the rest of the app imports.
     """
-    
+
     model_config = SettingsConfigDict(
-        env_file = ".env",
-        env_file_encoding = "utf-8",
-        extra = "ignore"
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
     # ── LangSmith configurations ─────────────────────────────────────────────────────────────
     LANGSMITH_API_KEY: str = Field(..., env="LANGSMITH_API_KEY")
@@ -31,7 +30,7 @@ class Settings(BaseSettings):
     LANGSMITH_PROJECT: str = Field(..., env="LANGSMITH_PROJECT")
 
     # ── Mistral API & Models Names ─────────────────────────────────────────────────────────────
-    
+
     MISTRAL_API_KEY: str = Field(..., env="MISTRAL_API_KEY")
     LARGE_MODEL_NAME: str = Field(..., env="LARGE_MODEL_NAME")
     MEDIUM_MODEL_NAME: str = Field(..., env="MEDIUM_MODEL_NAME")
@@ -59,7 +58,7 @@ class Settings(BaseSettings):
     # the broken engines-3/pkcs11.so). Picked up by scripts and the VS Code Python
     # extension (python.envFile). See Claude-Brain: rag-doc-qa-phase3-env-fixes.
     OPENSSL_CONF: str = Field(..., env="OPENSSL_CONF")
-    
+
     # ── Tavily API Key ─────────────────────────────────────────────────────────────
     TAVILY_API_KEY: str = Field(..., env="TAVILY_API_KEY")
 

@@ -4,6 +4,7 @@ Each node is a pure function: it receives the current ``AgentState``, performs
 one unit of work (LLM call, interrupt, or store write), and returns a partial-
 state dict.  Side effects are concentrated here so edge functions stay logic-only.
 """
+
 # ── Module Imports ─────────────────────────────────────────────────────────────────────
 import os
 from datetime import datetime
@@ -98,12 +99,13 @@ Provide your final answer using a clean, professional Markdown format according 
 * **Handling Empty Results:** If the search results do not provide enough evidence to answer the query, explicitly state that the information is insufficient rather than guessing or using outdated internal knowledge.
 """
 
+
 # ── Async Functions that allows mid execution pause ─────────────────────────────────────────────────────────────────────
 # Save findings node uses the save_findings tool to persist the AI findings.
 async def save_findings_node(
     state: AgentState,
-    config: RunnableConfig,
     store: BaseStore,  # BaseStore not InjectedStore: this is a node, not a @tool
+    config: RunnableConfig,
 ) -> dict:
     """Persist the agent's last message as a timestamped finding.
 
@@ -123,18 +125,22 @@ async def save_findings_node(
     findings = [
         {
             "topic": state["topic"],
-            "content": state["messages"][-1].content,
+            "content": state["messages"][
+                -1
+            ].content,  # Take the last message (AI message)
             "timestamp": str(datetime.now()),
         }
     ]
     print(await save_findings(findings=findings, store=store, config=config))
     return {}
 
+
 # Researcher node uses the LLM with tools to perform one research turn, which may result in tool calls or a plain-text answer.
-async def researcher_node(state: AgentState, 
-                        store: BaseStore,
-                        config: RunnableConfig,) -> dict[str, str]:
-    
+async def researcher_node(
+    state: AgentState,
+    store: BaseStore,
+    config: RunnableConfig,
+) -> dict[str, str]:
     """Run one LLM + tool-calling turn for the research task.
 
     Prepends the system prompt and a human trigger message, then invokes the
@@ -155,21 +161,28 @@ async def researcher_node(state: AgentState,
     user_id = config["configurable"]["user_id"]
     namespace = (user_id, "findings")
     existing_memory = await store.asearch(namespace)
-    
+
     # if there an existing memory, we will use it to inform the LLM's response. Otherwise, we will proceed with a web search.
     if existing_memory:
         response = await llm_with_tools.ainvoke(
-            [SystemMessage(content=existing_memory_instruction.format(existing_memory=existing_memory))] +
-            [HumanMessage(content=f"Search about this topic: {topic} ")] +
-            state["messages"]
+            [
+                SystemMessage(
+                    content=existing_memory_instruction.format(
+                        existing_memory=existing_memory
+                    )
+                )
+            ]
+            + [HumanMessage(content=f"Search about this topic: {topic} ")]
+            + state["messages"]
         )
     else:
         response = await llm_with_tools.ainvoke(
-            [SystemMessage(content=web_search_instructions)] +
-            [HumanMessage(content=f"Search about this topic: {topic} ")] +
-        state["messages"]
-    )
+            [SystemMessage(content=web_search_instructions)]
+            + [HumanMessage(content=f"Search about this topic: {topic} ")]
+            + state["messages"]
+        )
     return {"messages": [response]}
+
 
 # Human-in-the-loop node uses LangGraph's interrupt to pause execution and surface the findings to the human for review.
 def hitl_node(state: AgentState, config: RunnableConfig) -> dict:
@@ -189,15 +202,39 @@ def hitl_node(state: AgentState, config: RunnableConfig) -> dict:
     """
     topic = state["topic"]
 
-    approved = interrupt(
-        f"Approve findings for '{topic}'? \nReply 'yes' to save, or 'no' to search again."
-    )
-    if approved not in ("yes", "y"):
-        # Why this has been added
-        # because if the user has accepts the findings,
-        # the save_finding_tool dont care about what type of messages it recieves,
-        # so no crash, where the researcher_node uses a LLM, and LLM API does not accepts AIMessage as a response,
-        # in that case, we need to append a HumanMessage to the messages list, so that the researcher_node can continue to work with the LLM API.
-        rejection_message = HumanMessage(content="Human rejected the findings. Please refine your answer.")
-        return {"human_response": approved, "messages": [rejection_message]}
-    return {"human_response": approved}
+    question = f"Approve findings for '{topic}'? \nReply 'yes' to save, or 'no' to search again, and 'edit' to refine the answer."
+
+    while True:
+        # Take the human's decision via interrupt(). 
+        approved = interrupt(question)
+        # Yes branch
+        if approved in ("yes", "y"):
+            return {"human_response": approved}
+        # Edit branch
+        elif approved in ("edit", "e"):
+            # Secind interrupt() call to get the human's refinements to the findings.
+            user_input = interrupt(
+                "Please provide your refinements to the findings, along side with the user feedback:"
+            )
+            return {
+                "human_response": approved,
+                "messages": [
+                    HumanMessage(
+                        content=f"\nHere's what the human wants changed, revise your prior answer accordingly: {user_input}"
+                    )
+                ],
+            }
+        # No branch
+        elif approved in ("no", "n"):
+            return {
+                "human_response": approved,
+                "messages": [
+                    HumanMessage(
+                        content=f"User has rejected the findings for '{topic}'."
+                    )
+                ],
+            }
+        # Invalid input branch (Clarification prompt)
+        else:
+            clarifying_message = f"Invalid input '{approved}'. Please reply 'yes' to save, 'no' to search again, or 'edit' to refine the answer."
+            question = clarifying_message

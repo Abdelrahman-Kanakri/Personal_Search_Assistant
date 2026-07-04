@@ -1,10 +1,11 @@
 """Tool for persisting research findings to the LangGraph cross-session store."""
+
 from typing import Any
 
-from langchain.tools import tool
 from langchain_core.runnables import RunnableConfig
 from langgraph.prebuilt import InjectedStore
 from typing_extensions import Annotated
+
 
 # No @tool decorator is required here because this is a node, not a tool.
 async def save_findings(

@@ -4,6 +4,7 @@
 to.  Fields that accumulate across turns use ``Annotated`` with an explicit
 reducer so LangGraph merges partial updates instead of overwriting previous values.
 """
+
 # ── Module Imports ─────────────────────────────────────────────────────────────────────
 import operator
 from datetime import datetime
@@ -12,6 +13,7 @@ from typing import Annotated, Optional, TypedDict
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
+
 
 # ── State Classes ─────────────────────────────────────────────────────────────────────
 class Finding(BaseModel):
@@ -28,7 +30,9 @@ class AgentState(TypedDict):
 
     # add_messages reducer appends new messages instead of overwriting the list.
     messages: Annotated[list[AnyMessage], add_messages]
-    topic: str                                            # set once on graph entry; never mutated
-    results: Annotated[list[str], operator.add]           # raw search snippets accumulated across tool calls
-    findings: Annotated[list[Finding], operator.add]      # approved, persisted findings
-    human_response: Optional[str]                         # last HITL decision ('yes' / anything else)
+    topic: str  # set once on graph entry; never mutated
+    results: Annotated[
+        list[str], operator.add
+    ]  # raw search snippets accumulated across tool calls
+    findings: Annotated[list[Finding], operator.add]  # approved, persisted findings
+    human_response: Optional[str]  # last HITL decision ('yes' / anything else)

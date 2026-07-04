@@ -18,8 +18,10 @@ _root_handler = logging.FileHandler(LOG_DIR / "log.log")
 _root_handler.setFormatter(_json_formatter)
 
 # Append the root handler to the logger
-logging.basicConfig(level = logging.INFO, 
-                    handlers = [_root_handler],)
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[_root_handler],
+)
 
 structlog.configure(
     processors=[
@@ -35,14 +37,15 @@ structlog.configure(
         # Standard ISO 8601 timestamp format is preferred in production (e.g., for ELK/Splunk)
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         # Renders the final output as a JSON string
-        structlog.processors.JSONRenderer()
+        structlog.processors.JSONRenderer(),
     ],
     # Correct type hint binding for modern structlog versions
     wrapper_class=structlog.stdlib.BoundLogger,
     logger_factory=structlog.stdlib.LoggerFactory(),
-    cache_logger_on_first_use=True
+    cache_logger_on_first_use=True,
 )
 # ── Logger factory ──────────────────────────────────────────────────────────
+
 
 def get_logger(name: str | None = None) -> FilteringBoundLogger:
     """Get a JSON-structured logger, optionally isolated to its own file.
@@ -58,7 +61,7 @@ def get_logger(name: str | None = None) -> FilteringBoundLogger:
     if name:
         # Create a sperate logger for name based channel
         stdlib_logger = logging.getLogger(name)
-        
+
         if not stdlib_logger.handlers:
             handler = logging.FileHandler(LOG_DIR / f"{name}.log")
             # Append the _json_formatter to the handler as previous
@@ -66,5 +69,5 @@ def get_logger(name: str | None = None) -> FilteringBoundLogger:
             stdlib_logger.addHandler(handler)
             stdlib_logger.setLevel(logging.INFO)
             stdlib_logger.propagate = False  # Prevent double logging to root logger
-        
+
     return structlog.get_logger(name)

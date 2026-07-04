@@ -1,4 +1,5 @@
 """Tavily-backed web search tool, exposed as a LangChain ``@tool``."""
+
 import os
 
 from langchain.tools import tool
@@ -22,4 +23,6 @@ def web_search(query: str, max_results: int = 5) -> list[dict[str, str]]:
     """
     searcher = TavilySearch(max_results=max_results)
     results = searcher.invoke({"query": query})
-    return [{"content": item["content"], "url": item["url"]} for item in results["results"]]
+    return [
+        {"content": item["content"], "url": item["url"]} for item in results["results"]
+    ]
