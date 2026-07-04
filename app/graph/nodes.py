@@ -205,14 +205,14 @@ def hitl_node(state: AgentState, config: RunnableConfig) -> dict:
     question = f"Approve findings for '{topic}'? \nReply 'yes' to save, or 'no' to search again, and 'edit' to refine the answer."
 
     while True:
-        # Take the human's decision via interrupt(). 
+        # Take the human's decision via interrupt().
         approved = interrupt(question)
         # Yes branch
         if approved in ("yes", "y"):
             return {"human_response": approved}
         # Edit branch
         elif approved in ("edit", "e"):
-            # Secind interrupt() call to get the human's refinements to the findings.
+            # Second interrupt() call to get the human's refinements to the findings.
             user_input = interrupt(
                 "Please provide your refinements to the findings, along side with the user feedback:"
             )
