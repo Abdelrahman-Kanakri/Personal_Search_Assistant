@@ -43,15 +43,25 @@ async def run_cli(graph: CompiledStateGraph) -> None:
             break
 
         # stream_result is non-None only when the graph pauses at a HITL interrupt.
-        stream_result = await stream_events(user_input, graph, config)
-        while stream_result is not None:
-            print(f"\n{stream_result}")
-            human_response = input("Your response: ").strip()
-            print("\nResuming...")
-            stream_result = await resume_graph(human_response, graph, config)
+        done_flag = False
+        stream_result = stream_events(user_input, graph, config)
+        while True:
+            async for kind, payload in stream_result:
+                if kind == "token":
+                    print(payload, end="", flush=True)
+                elif kind == "interrupt":
+                    print(f"\n\nHITL interrupt: {payload}")
+                    human_response = input("Your response: ").strip()
+                    print("\nResuming...\n")
+                    stream_result = resume_graph(human_response, graph, config)
+                elif kind == "done":
+                    done_flag = True
+                    print("\n\nResearch run completed.\n")
+                    break
 
-        print("\nResearch run completed.\n")
-
-        again = input("Start a new research run? (yes/no): ").strip().lower()
-        if again not in ("yes", "y"):
-            break
+            if done_flag:
+                user_input = (
+                    input("Start a new research run? (yes/no): ").strip().lower()
+                )
+                if user_input not in ("yes", "y"):
+                    break

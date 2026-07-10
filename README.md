@@ -15,7 +15,7 @@ so future runs on related topics can reuse it instead of re-searching.
 | [`app/graph/`](docs/app-graph.md) | LangGraph state schema, nodes, routing edges, graph assembly |
 | [`app/tools/`](docs/app-tools.md) | `@tool`-decorated functions the LLM can call |
 | [`app/streaming/`](docs/app-streaming.md) | Async event streaming + HITL resume helpers |
-| [`app/memory/`](docs/app-memory.md) | Cross-session memory layer (stub — not yet implemented) |
+| [`app/memory/`](docs/app-memory.md) | Cross-session memory layer (package files are empty placeholders; the logic itself lives inline in `app/graph/nodes.py`) |
 | [`tests/`](docs/tests.md) | Pytest unit tests |
 
 All per-directory docs live in [`docs/`](docs/), alongside

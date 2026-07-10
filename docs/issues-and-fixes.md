@@ -132,8 +132,8 @@ Built: renamed/modularized file layout, `streaming/events.py`, `cli.py`,
    fired and nothing printed. **Fix:** `async def researcher_node`, `await
    llm_with_tools.ainvoke(...)`.
 
-9. **Leading-space filenames:** a directory literally named `` app/``
-   (leading space) and several `__init__.py` files also had a leading space
+9. **Leading-space filenames:** a directory literally named `" app"` (with a
+   leading space) and several `__init__.py` files also had a leading space
    in the filename. **Fix at the time:** `mv " app" app` and renamed the
    `__init__.py` files — this fix didn't fully stick: `app/__init__.py` and
    `app/memory/__init__.py` still had stray space-prefixed duplicates
@@ -289,3 +289,142 @@ Built: HITL reject-loop fix, `test_hitl.py`, full migration from
 **End state:** migration fully done and runtime-verified — a complete CLI
 research run (topic → stream → HITL approve → save) works end-to-end
 against the live Postgres container, not just reads correctly.
+
+---
+
+## Day 5 — HITL edit flow, Phase 3 test suite, docs pass (`678a37f`, `3f4070f`)
+
+Built: three-way approve/reject/edit in `hitl_node` with a re-prompt
+validation loop; unified `save_findings_node`'s parameter order to
+`(state, store, config)` (matching `researcher_node`) and switched call
+sites to keyword arguments; wrote `test_nodes.py`, `test_memory.py`, and an
+edit-flow case in `test_hitl.py`; added `ruff`/`pytest-asyncio` as dev
+dependencies; wrote this `docs/` tree and the README; cleaned up stray
+leading-space `__init__.py` files.
+
+1. **Resolved — `hitl_node`'s edit branch was never meant to route straight
+   to `save_findings`; the original commit message was just inaccurate.**
+   `route_from_hitl` (`app/graph/edges.py`) special-cases only `"yes"`/`"y"`
+   → `"save_findings"`; both `"no"` and `"edit"` fall through to
+   `"researcher_node"` — correct, since an edit's replacement text needs
+   another LLM turn to act on it, same mechanism a rejection uses. Commit
+   `395626a` ("Day 5 (Continued)") rewrote the commit message to say this
+   explicitly, and `test_hitl_node_edit` in `test_hitl.py` covers the path.
+   No code change was needed.
+
+2. **Silent positional-argument bug risk, not an actual bug yet**: before
+   this day, `save_findings_node` and `researcher_node` had different
+   parameter orders (`(state, config, store)` vs. `(state, store, config)`).
+   Both types were unannotated at call sites originally relying on
+   positional args — swapping `store`/`config` positionally would type-check
+   fine (both are duck-typed at the call site) but fail confusingly at
+   runtime. **Fix:** unified the order across both nodes and switched every
+   call site (including in `build.py`'s graph wiring and all three test
+   files) to keyword arguments, so a future reorder can't silently swap the
+   two.
+
+---
+
+## Load-test session (uncommitted as of this writing) — concurrency tests
+
+Built: `tests/test_load.py` — two full-graph concurrency tests closing
+Phase 3's "load test: 5 concurrent threads" item (cross-user isolation, then
+a same-user write-contention variant). Session context: user built this
+under `mentor-prompt.md`'s standing mentor persona; the exact override
+phrase `MENTOR OVERRIDE: show me the code` was used twice to get a
+reference implementation after Socratic review had already surfaced each
+bug in the user's own draft — not used to skip understanding, since both
+uses were followed by a walkthrough of the non-obvious mechanics.
+
+1. **`AsyncMock(return_value=X)` is a trap under concurrency.** Every
+   concurrent call gets the identical object `X` back, regardless of which
+   coroutine invoked it or with what arguments — makes it impossible to
+   assert "thread A's response didn't leak into thread B," since all
+   threads' responses are indistinguishable by construction, not because
+   isolation actually held. **Fix:** `AsyncMock(side_effect=callable)`,
+   where the callable derives its return value from the actual call
+   arguments (`messages[-1].content`, which contains that call's topic).
+
+2. **`interrupt()` does not raise inside `ainvoke()`.** A compiled graph
+   with a checkpointer, invoked via `await graph.ainvoke(...)`, returns
+   *normally* when it hits `interrupt()` — the returned dict gets an extra
+   `"__interrupt__"` key holding a list of `Interrupt` objects, execution
+   just doesn't proceed past that node. Resume via `await
+   graph.ainvoke(Command(resume=<value>), config=config)` with the same
+   `thread_id`. Verified against a minimal throwaway graph before relying on
+   it in the real test.
+
+3. **A namespace-wide invariant needs a namespace-wide check, not N
+   per-item checks run after all items already exist.** First draft of the
+   same-user contention test copy-pasted the cross-user test's per-thread
+   loop body — including a `store.asearch(...)` call and `assert
+   len(findings) == 1` *inside* the loop. Since `asyncio.gather` only
+   returns after all 5 threads' writes have already landed in the one
+   shared namespace, that assertion fails on the very first loop iteration
+   (finds all 5, not 1). **Fix:** split into two separate checks — a
+   per-thread loop asserting only "this thread's own content is correct,"
+   and one `asearch` call *after* the loop asserting the whole namespace's
+   final count and topic set.
+
+---
+
+## HITL edit-flow session (uncommitted as of this writing) — `state.next` vs `state.tasks`
+
+**Symptom:** typing `edit`/`e` at the HITL approve/reject/edit prompt didn't
+ask for refinement text — the CLI printed "Resuming..." then "Research run
+completed." as if the edit branch never ran.
+
+**Root cause**, isolated by reproducing against the compiled graph directly
+(`build_graph` + `InMemoryStore`/`InMemorySaver` + a mocked
+`llm_with_tools`, bypassing the CLI to rule out `edges.py`/`nodes.py`
+first): `hitl_node`'s edit branch calls `interrupt()` **twice** in sequence
+within one node execution — once for the yes/no/edit choice, once more for
+the replacement text (see Day 5's edit-flow build). On the *first*
+interrupt, `graph.aget_state(config).next` correctly showed
+`('hitl_node',)`. On the *second* interrupt — reached by replaying the same
+node with the cached resume value satisfying the first `interrupt()`
+call — `state.next` came back as an **empty tuple**, even though
+`state.tasks` clearly showed a pending `PregelTask(name='hitl_node',
+interrupts=(Interrupt(value='Please provide your refinements...'),))`.
+
+`state.next` reflects nodes scheduled for the *next* Pregel super-step,
+computed from the last *completed* step's checkpoint bookkeeping — it isn't
+re-derived for a second pause within what LangGraph still treats as the
+same task retry. `state.tasks[i].interrupts` doesn't have that gap; it's
+the live, authoritative per-task signal, unaffected by whether this is the
+first or a subsequent interrupt in the node's execution.
+
+Both `stream_events` and `resume_graph` (`app/streaming/events.py`) guarded
+on `if state.next:` before reading `state.tasks[0].interrupts[0].value` —
+the guard was wrong, the read itself was always fine. **Fix:** guard
+changed to `if state.tasks and state.tasks[0].interrupts:` (the
+`state.tasks and` prefix avoids `IndexError` on the empty-tuple case when
+the graph genuinely finished at `END`).
+
+**`StateSnapshot` has three related-but-different fields worth
+distinguishing, not just two:**
+
+- `.next` — node *names* scheduled for the next super-step. Fine for
+  general "is the graph done" bookkeeping; not reliable for detecting a
+  second interrupt within the same node's replay (this bug).
+- `.tasks` — tuple of `PregelTask` (name, error, result, `.interrupts`).
+  The authoritative per-node source of truth for interrupts/errors/results.
+- `.interrupts` (top-level on `StateSnapshot`, sibling of `.tasks`) — a
+  flattened aggregate of every interrupt across every task in the step.
+  Convenient, but `Interrupt` objects only carry `value`/`id`, no node
+  reference — flattening **loses task attribution**. Harmless today (only
+  `hitl_node` ever interrupts in this graph) but would silently conflate
+  two different nodes' interrupts if a second interruptible node were ever
+  added. Deliberately kept `tasks[0].interrupts[0]` instead, for that
+  reason.
+- `"__interrupt__" in result` (the mechanism `tests/test_load.py` uses) — a
+  fourth, separate option: available only on the dict returned directly
+  from `ainvoke`/`astream` in the *same call*, no extra `aget_state()`
+  round-trip needed. Not usable for checking status out-of-band later,
+  which is exactly why the CLI's streaming layer needs `aget_state()` +
+  `.tasks` in the first place — `astream_events` silently ends its
+  generator the moment `interrupt()` fires (Day 3, item 3), so nothing
+  about the interrupt survives in the event stream itself.
+
+Verified fixed end-to-end against the real CLI: `edit` now correctly
+prompts for refinement text before resuming.

@@ -67,9 +67,14 @@ The three nodes that do actual work:
   `web_search_instructions` (no memory) system prompts, then
   `await llm_with_tools.ainvoke(...)`. Owns only the `messages` field of the
   return dict.
-- `hitl_node` (sync) — calls `interrupt(...)` to pause the graph and surface
-  the researcher's findings for approval. On rejection, appends a
-  `HumanMessage` to `messages` so the next `researcher_node` turn has a
+- `hitl_node` (sync) — calls `interrupt(...)` to pause the graph for a
+  three-way approve/reject/edit decision, re-prompting on unrecognized
+  input. Reject appends a `HumanMessage` and loops back to
+  `researcher_node` for another LLM turn. Edit issues a **second**
+  `interrupt(...)` for the replacement text, then also appends it as a
+  `HumanMessage` and — per `route_from_hitl` — likewise routes back to
+  `researcher_node`, not straight to `save_findings`. Either non-approve
+  path needs that appended message so the next `researcher_node` turn has a
   valid trailing role for the Mistral API (which rejects a request ending on
   an `AIMessage`).
 - `save_findings_node` (async) — packages `state["topic"]` +
@@ -139,17 +144,29 @@ module-level graph constant):
   from `Command(resume=human_response)` instead of a fresh input dict.
 
 ## `tests/`
+
+Full Phase 3 (per `mentor-prompt.md`) test suite — see
+[`tests.md`](tests.md) for per-test detail. Summary:
+
 - `tests/test_hitl.py` — unit tests for `hitl_node`, monkeypatching
   `app.graph.nodes.interrupt` (patch where the name is *looked up*, i.e. in
   `nodes.py`'s namespace, not where `interrupt` is defined in
   `langgraph.types`) so the node can be exercised without a running graph.
-  Covers both the approve (`"yes"`) and reject (`"no"`) paths, asserting on
-  the `messages` field specifically — not just `human_response` — since
-  that's the field the reject-loop bug actually touched.
-- `tests/test_nodes.py`, `tests/test_memory.py` — still empty. Phase 3
-  (per `mentor-prompt.md`) also calls for HITL approve/reject/edit
-  simulation and a memory-continuity test (close + reopen with the same
-  `thread_id`); neither is written yet.
+  Covers approve (`"yes"`), reject (`"no"`), and edit (`"edit"`, which
+  requires `Mock(side_effect=[...])` since `interrupt` is called twice in
+  sequence within that one branch).
+- `tests/test_nodes.py` — `researcher_node`'s memory/no-memory branches
+  (monkeypatches the module-level `llm_with_tools`) and
+  `save_findings_node`'s delegation to `save_findings`.
+- `tests/test_memory.py` — cross-session continuity against a real
+  `InMemoryStore` (not a fake): saves a finding, then verifies a later
+  `researcher_node` call recalls it via the memory-recall prompt.
+- `tests/test_load.py` — full-graph concurrency test (Phase 3's "load test:
+  5 concurrent threads" item), run against `InMemorySaver`/`InMemoryStore`
+  rather than node-level mocks, since checkpointer/store isolation across
+  `thread_id`s can't be exercised at the single-node level. Two variants:
+  cross-user isolation (5 distinct `user_id`s) and same-user write
+  contention (5 `thread_id`s sharing one `user_id`'s namespace).
 
 ## Package init files
 

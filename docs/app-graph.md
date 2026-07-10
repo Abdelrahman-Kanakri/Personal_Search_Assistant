@@ -48,17 +48,14 @@ Import-time setup: `os.environ["MISTRAL_API_KEY"] = settings.MISTRAL_API_KEY`;
 `llm_with_tools = llm.bind_tools(tools)` — wires the tool schemas into the
 LLM so it can emit `tool_calls` messages.
 
-### `jls_extract_var` (system prompt — memory-recall path)
+### `existing_memory_instruction` (system prompt — memory-recall path)
 
-The name is a leftover from an IDE "extract variable" refactor, kept as-is
-to avoid an unrelated rename in a docs-only pass. Also referenced as
-`existing_memory_instruction`. This is the system prompt used when the
-store already has saved findings for the current user: it instructs the LLM
-to decompose the query, prefer previously saved findings over re-searching,
-fall back to `web_search` only for sub-questions memory doesn't cover, cite
-every claim (`[n]`), and list sources as either `Memory — <topic>, saved
-<date>` or `Web — <URL>`. Formatted with `.format(existing_memory=...)`
-before use.
+The system prompt used when the store already has saved findings for the
+current user: it instructs the LLM to decompose the query, prefer
+previously saved findings over re-searching, fall back to `web_search` only
+for sub-questions memory doesn't cover, cite every claim (`[n]`), and list
+sources as either `Memory — <topic>, saved <date>` or `Web — <URL>`.
+Formatted with `.format(existing_memory=...)` before use.
 
 ### `web_search_instructions`
 
@@ -68,16 +65,20 @@ Tavily searches, prefer reputable sources, cite every claim (`[n]`), and
 list a numbered URL source list. No memory-formatting placeholder — used
 verbatim.
 
-### `async def save_findings_node(state: AgentState, config: RunnableConfig, store: BaseStore) -> dict`
+### `async def save_findings_node(state: AgentState, store: BaseStore, config: RunnableConfig) -> dict`
 
 Persist the agent's last message as a timestamped finding.
 
 - **Args:**
   - `state`: must contain `topic` and `messages`.
-  - `config`: runnable config carrying `configurable.user_id`.
   - `store`: `BaseStore` — a plain `BaseStore`, not `InjectedStore`, because
     this runs as a *node* (LangGraph injects it via the node signature), not
     as an LLM-callable `@tool`.
+  - `config`: runnable config carrying `configurable.user_id`.
+
+  Parameter order matches `researcher_node`'s `(state, store, config)` —
+  unified so both nodes share one convention and call sites can rely on
+  keyword arguments instead of guessing positional order.
 - **Returns:** `{}` — no state fields are updated after saving; the finding
   is written directly to the store, not to `AgentState`.
 - **Behavior:** builds `[{"topic": state["topic"], "content":
@@ -108,22 +109,32 @@ Run one LLM + tool-calling turn for the research task.
 
 ### `def hitl_node(state: AgentState, config: RunnableConfig) -> dict`
 
-Pause execution and surface the latest findings to the human for review.
+Pause execution and surface the latest findings to the human for a genuine
+three-way approve / reject / edit decision.
 
 - **Args:**
   - `state`: must contain `topic` and `messages`.
   - `config`: unused, kept for signature consistency with other nodes.
-- **Returns:** `{"human_response": approved}` on approval; on rejection,
-  also includes `"messages": [rejection_message]`.
+- **Returns:**
+  - Approve (`'yes'`/`'y'`): `{"human_response": approved}` — no
+    `messages` key, since `researcher_node` isn't invoked again on this
+    path (see `route_from_hitl` below), so there's nothing to feed it.
+  - Reject (`'no'`/`'n'`): `{"human_response": approved, "messages":
+    [HumanMessage("User has rejected the findings for '<topic>'.")]}`.
+  - Edit (`'edit'`/`'e'`): a **second** `interrupt(...)` call asks for the
+    replacement text, then returns `{"human_response": approved, "messages":
+    [HumanMessage(f"...revise your prior answer accordingly: {user_input}")]}`.
+  - Anything else: re-prompts with a clarifying message and loops (`while
+    True`) — the human is asked again rather than the graph erroring or
+    silently defaulting to a branch.
 - **Behavior:** calls LangGraph's `interrupt(...)` with an approval prompt,
   which suspends the graph until the caller resumes it with
-  `Command(resume=...)`. If the human's response is not `'yes'`/`'y'`, a
-  `HumanMessage("Human rejected the findings. Please refine your answer.")`
-  is appended to `messages` — required because `researcher_node` re-invokes
-  the LLM afterward, and the Mistral API rejects an `AIMessage` as the most
-  recent turn; `save_findings_node` (the approval path) has no such
-  constraint since it doesn't call an LLM, so no extra message is needed
-  there.
+  `Command(resume=...)`. Both the reject and edit paths append a
+  `HumanMessage` to `messages` — required because both route back to
+  `researcher_node` for another LLM turn (see `route_from_hitl`), and the
+  Mistral API rejects a request whose most recent turn is an `AIMessage`.
+  Only the approve path skips this, since it goes straight to
+  `save_findings_node`, which never calls an LLM.
 
 ## `edges.py`
 
@@ -146,8 +157,11 @@ Decide what follows the human-review interrupt.
 
 - **Args:** `state` (must contain `human_response`), `config` (unused).
 - **Returns:** `"save_findings"` if `state["human_response"]` is `'yes'` or
-  `'y'`; otherwise `"researcher_node"` (send control back to refine the
-  answer).
+  `'y'`; otherwise `"researcher_node"` — this covers **both** `'no'` and
+  `'edit'` identically, since neither is special-cased here. An edit's
+  replacement text reaches the LLM as just another `HumanMessage` in
+  `state["messages"]`, the same mechanism a rejection uses; there is no
+  "skip straight to save" shortcut for edits.
 
 ## `build.py`
 

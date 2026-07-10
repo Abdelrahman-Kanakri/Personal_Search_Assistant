@@ -5,6 +5,7 @@ Wires the Postgres-backed store (cross-session memory) and checkpointer
 the interactive REPL in ``app.cli``.
 """
 
+import selectors
 import asyncio
 from app.cli import run_cli
 
@@ -39,4 +40,7 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(
+        main(),
+        loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
+    )

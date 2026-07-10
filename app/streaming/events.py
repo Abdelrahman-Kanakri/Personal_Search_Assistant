@@ -5,6 +5,7 @@ hits a HITL interrupt, returning the interrupt payload so the CLI can prompt the
 user.  ``resume_graph`` resumes a suspended run after the user has responded.
 """
 
+from collections.abc import AsyncGenerator
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
 from langgraph.graph.state import CompiledStateGraph
@@ -12,7 +13,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 async def stream_events(
     user_input: str, graph: CompiledStateGraph, config: RunnableConfig
-) -> str | None:
+) -> AsyncGenerator[tuple[str, str | None], None]:
     """Start a research run and stream agent output until an interrupt or completion.
 
     Args:
@@ -20,9 +21,13 @@ async def stream_events(
         graph: The compiled LangGraph graph.
         config: Runnable config including ``thread_id`` and ``user_id``.
 
-    Returns:
-        The interrupt payload string if the graph pauses for human review,
-        or ``None`` if the graph ran to completion without interrupting.
+    Yields:
+        An AsyncGenerator yielding tuples of the:
+        - event type ["token", "interrupt", "done"]
+        - content of the event, if applicable:
+            -   (``None`` for "done" events).
+            -   (the interrupt payload for "interrupt" events).
+            -   (the token string for "token" events).
     """
     async for event in graph.astream_events(
         {"topic": user_input, "messages": []},
@@ -32,21 +37,22 @@ async def stream_events(
         if event["event"] == "on_chat_model_stream":
             chunk = event["data"]["chunk"]
             if isinstance(chunk.content, str) and chunk.content:
-                print(chunk.content, end="", flush=True)
+                yield ("token", chunk.content)
             elif isinstance(chunk.content, list):
                 for part in chunk.content:
                     if isinstance(part, dict) and part.get("type") == "text":
-                        print(part["text"], end="", flush=True)
+                        yield ("token", part["text"])
 
     state = await graph.aget_state(config)
-    if state.next:
-        return state.tasks[0].interrupts[0].value
-    return None
+    if state.tasks and state.tasks[0].interrupts:
+        yield ("interrupt", state.tasks[0].interrupts[0].value)
+    else:
+        yield ("done", None)
 
 
 async def resume_graph(
     human_response: str, graph: CompiledStateGraph, config: RunnableConfig
-) -> str | None:
+) -> AsyncGenerator[tuple[str, str | None], None]:
     """Resume a graph that was suspended at a HITL interrupt.
 
     Wraps the human response in a ``Command(resume=...)`` so LangGraph can
@@ -59,9 +65,13 @@ async def resume_graph(
             call — the ``thread_id`` must match so the checkpointer loads the
             correct suspended state.
 
-    Returns:
-        The next interrupt payload if the graph pauses again, or ``None`` if
-        the graph ran to completion.
+    Yields:
+        An AsyncGenerator yielding tuples of the:
+        - event type ["token", "interrupt", "done"]
+        - content of the event, if applicable:
+            -   (``None`` for "done" events).
+            -   (the interrupt payload for "interrupt" events).
+            -   (the token string for "token" events).
     """
     async for event in graph.astream_events(
         Command(resume=human_response), config, version="v2"
@@ -69,12 +79,13 @@ async def resume_graph(
         if event["event"] == "on_chat_model_stream":
             chunk = event["data"]["chunk"]
             if isinstance(chunk.content, str) and chunk.content:
-                print(chunk.content, end="", flush=True)
+                yield ("token", chunk.content)
             elif isinstance(chunk.content, list):
                 for part in chunk.content:
                     if isinstance(part, dict) and part.get("type") == "text":
-                        print(part["text"], end="", flush=True)
+                        yield ("token", part["text"])
     state = await graph.aget_state(config)
-    if state.next:
-        return state.tasks[0].interrupts[0].value
-    return None
+    if state.tasks and state.tasks[0].interrupts:
+        yield ("interrupt", state.tasks[0].interrupts[0].value)
+    else:
+        yield ("done", None)

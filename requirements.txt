@@ -17,3 +17,4 @@ langchain-mistralai
 aiosqlite
 pydantic-settings
 langgraph-checkpoint-sqlite
+psycopg[binary]
