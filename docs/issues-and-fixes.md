@@ -428,3 +428,127 @@ distinguishing, not just two:**
 
 Verified fixed end-to-end against the real CLI: `edit` now correctly
 prompts for refinement text before resuming.
+
+---
+
+## Day 6 — Streaming refactor, Windows dev-env fixes, `app/memory` removal (`bf5428a`)
+
+Built: converted `stream_events`/`resume_graph` from print-and-return to
+async generators yielding `(kind, payload)` tuples (API-readiness — a
+`return` can't be consumed incrementally by a future SSE response, a
+`yield` can); added `app/schemas/models.py`'s `Event` model and scaffolded
+(empty) `app/api/routes.py`/`app/api/__init__.py`; removed
+`app/memory/store.py` + `__init__.py` (empty placeholders — nothing ever
+moved into them, see Day 5's note); added `tests/test_load.py`.
+
+1. **psycopg's async driver hangs — no exception — under Windows' default
+   `ProactorEventLoop`.** `asyncio.run(main())` on Windows uses
+   `ProactorEventLoop` by default; `AsyncPostgresStore`/`AsyncPostgresSaver`
+   need `SelectorEventLoop`. Under the wrong loop the connect just never
+   completes — no traceback, no timeout, the process sits at "Waiting for
+   application startup" (or, for the CLI, silently before any prompt)
+   forever. **Fix:** `asyncio.run(main(), loop_factory=lambda:
+   asyncio.SelectorEventLoop(selectors.SelectSelector()))` in `main.py`.
+   This same root cause resurfaced for the API entry point four days later
+   (below) — uvicorn creates its own loop, so this exact fix doesn't
+   transfer directly; only the *symptom* (silent hang, TCP port reachable,
+   zero exceptions) is identical, which is what made it fast to recognize.
+2. **`psycopg[binary]` added to `pyproject.toml`** — the async driver
+   otherwise depends on a system `libpq` install, which this Windows dev
+   host doesn't have.
+
+*(This entry was written retroactively on 2026-07-14, during a docs pass —
+the commit message claimed a "docs updated" step that didn't actually touch
+this file. Lesson for future doc passes: verify the diff, not the commit
+message.)*
+
+---
+
+## API + Docker + Sentry + LangSmith session (2026-07-14)
+
+Built: `app/api/main.py` (FastAPI app, lifespan, Windows loop fix) +
+`app/api/routes.py` (`POST /runs/`, `POST /runs/{thread_id}/resume`) filled
+in from Day 6's empty scaffold; `Dockerfile` + `.dockerignore` filled in
+from an empty scaffold; `app/core/observability.py` (Sentry) and
+`app/core/run_config.py` (shared `RunnableConfig`/LangSmith tagging), both
+new; `tests/test_api.py`; filled in the three remaining empty `__init__.py`
+files (`app/api/`, `app/schemas/`, `app/streaming/`).
+
+1. **uvicorn's default `"asyncio"` loop picks `ProactorEventLoop` on
+   Windows too** — same root cause as Day 6's `main.py` fix, different
+   process. `uvicorn app.api.main:app --reload` hung identically: TCP port
+   reachable (confirmed via `netstat`, something — a native Windows
+   Postgres service, not the stopped Docker container — was already
+   listening on `5432`), zero exceptions, just "Waiting for application
+   startup" forever. **Fix:** a `loop_factory()` function in
+   `app/api/main.py`, wired via `uvicorn ... --loop
+   app.api.main:loop_factory`.
+2. **Uvicorn's custom `--loop module:callable` contract is *not* the same
+   shape as its built-in named loops.** First attempt copied
+   `uvicorn.loops.asyncio.asyncio_loop_factory`'s two-level signature —
+   `(use_subprocess: bool) -> Callable[[], AbstractEventLoop]` — reasoning
+   "match the built-in convention." Wrong: `Config.get_loop_factory()`
+   resolves built-in names through *two* calls (import the two-level
+   function, then call it with `use_subprocess`), but for a custom string
+   it does `return import_from_string(self.loop)` and stops — no second
+   call. The result: `asyncio.Runner` received a function that, when it
+   called `loop_factory()`, got back *another callable* (the
+   `SelectorEventLoop` class) instead of a loop instance, and tried to use
+   the class itself as `self._loop` — surfaced as `TypeError:
+   BaseEventLoop.create_task() missing 1 required positional argument:
+   'coro'`, since `SelectorEventLoop.create_task(coro, context=...)` called
+   unbound treats `coro` as the missing `self`. **Fix:** the custom hook
+   must be the final, single-level `() -> AbstractEventLoop` factory
+   directly — verified by reading `uvicorn/config.py`'s actual source
+   rather than guessing from the built-in loops' signature.
+3. **`sse-starlette` was already a pinned dependency, unused.** It's in
+   `mentor-prompt.md`'s original Phase 4 dependency list, and was in
+   `pyproject.toml`, but the first working implementation hand-rolled
+   `f"event: {kind}\ndata: {json}\n\n"` string formatting instead.
+   **Fix:** switched to `sse_starlette.sse.EventSourceResponse`, fed an
+   async generator of `{"event": ..., "data": ...}` dicts. Bonus: its
+   default headers (`Cache-Control: no-store`, not the hand-rolled
+   `no-cache`; plus `X-Accel-Buffering: no` for nginx) are stricter/more
+   complete than the hand-rolled version.
+4. **Design decision, not a bug:** `mentor-prompt.md` specified one `GET
+   /research/stream?topic=X&thread_id=Y` endpoint; built two `POST`
+   endpoints instead (`/runs/`, `/runs/{thread_id}/resume`). Confirmed
+   deliberately with the user rather than assumed — a bodyless `GET` can't
+   cleanly carry the human's free-text response on resume (`'edit'`'s
+   replacement text, not just `'yes'`/`'no'`).
+5. **LangSmith reads `tags`/`metadata` from the top level of
+   `RunnableConfig`, not from `configurable`.** Easy to conflate, since
+   `thread_id`/`user_id` (which *are* under `configurable`) are the only
+   config keys touched before this. **Fix:** `build_run_config` sets
+   `tags=[f"user:{user_id}"]` / `metadata={"topic": topic}` as sibling keys
+   to `configurable`, not nested inside it.
+6. **A mid-stream exception can't become an HTTP error response.** By the
+   time any SSE event has been written, the `200` status and headers are
+   already sent — raising inside the generator just truncates the
+   connection with no diagnostic signal reaching the client. **Fix:**
+   `_sse_format` wraps its `async for` in `try`/`except Exception`, emitting
+   a terminal `{"event": "error", ...}` frame instead. A broad `except
+   Exception` is deliberate here, not a lazy catch-all: this is the SSE
+   wire protocol's actual failure boundary, and every failure needs to
+   become a client-visible event.
+7. **Resuming a `thread_id` with no pending interrupt has undefined
+   behavior if attempted** — never tested, since `Command(resume=...)`
+   assumes a paused checkpoint exists. **Fix:** `resume_run` checks
+   `state.tasks and state.tasks[0].interrupts` via `graph.aget_state(config)`
+   *before* opening the stream, returning `404` for three
+   otherwise-indistinguishable cases: `thread_id` never existed, already
+   ran to completion, or was already resumed. Verified against both a
+   never-started and an already-completed `thread_id`.
+8. **Known gap, not fixed:** `ResumeRunRequest.user_id` isn't cross-checked
+   against the `user_id` the run actually started with — nothing currently
+   stops resuming someone else's thread with a different `user_id`, which
+   would scope `save_findings`' store write to the *wrong* user. Fixing it
+   needs a thread_id → user_id record somewhere (the checkpointer doesn't
+   track arbitrary `configurable` keys across calls), which is more than a
+   one-line change — flagged rather than silently shipped.
+9. **Known duplication, not fixed:** `app/api/main.py`'s `lifespan` and
+   `main.py`'s `main()` both open the same
+   `AsyncPostgresStore`/`AsyncPostgresSaver` construction independently.
+   `docs/architecture.md`'s (now-removed) `app/memory/` entry predicted
+   exactly this moment as the right trigger for extracting a shared helper;
+   noted as a legitimate follow-up rather than actioned in this session.

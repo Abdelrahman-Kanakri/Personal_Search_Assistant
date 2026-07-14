@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     # ── Tavily API Key ─────────────────────────────────────────────────────────────
     TAVILY_API_KEY: str = Field(..., env="TAVILY_API_KEY")
 
+    # ── Sentry ─────────────────────────────────────────────────────────────
+    # Optional: unset/empty leaves the SDK disabled (sentry_sdk.init(dsn=None)
+    # is a documented no-op), so dev environments without a DSN work unchanged.
+    SENTRY_DSN: str | None = Field(None, env="SENTRY_DSN")
+
 
 settings = Settings()
 os.environ["OPENSSL_CONF"] = settings.OPENSSL_CONF

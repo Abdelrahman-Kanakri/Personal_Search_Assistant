@@ -15,8 +15,9 @@ so future runs on related topics can reuse it instead of re-searching.
 | [`app/graph/`](docs/app-graph.md) | LangGraph state schema, nodes, routing edges, graph assembly |
 | [`app/tools/`](docs/app-tools.md) | `@tool`-decorated functions the LLM can call |
 | [`app/streaming/`](docs/app-streaming.md) | Async event streaming + HITL resume helpers |
-| [`app/memory/`](docs/app-memory.md) | Cross-session memory layer (package files are empty placeholders; the logic itself lives inline in `app/graph/nodes.py`) |
-| [`tests/`](docs/tests.md) | Pytest unit tests |
+| [`app/api/`](docs/app-api.md) | FastAPI SSE endpoints — the second (HTTP) entry point |
+| [`app/schemas/`](docs/app-schemas.md) | Pydantic request/response/event models |
+| [`tests/`](docs/tests.md) | Pytest unit + integration tests |
 
 All per-directory docs live in [`docs/`](docs/), alongside
 [`docs/architecture.md`](docs/architecture.md) (file-by-file architecture
@@ -25,21 +26,46 @@ build history).
 
 ## Running
 
+Two entry points, both requiring a reachable Postgres instance
+(`POSTGRES_URI` in `.env`) — it backs both the LangGraph checkpointer
+(in-progress run state, keyed by `thread_id`) and the store (cross-session
+findings, keyed by `user_id`).
+
+### CLI
+
 ```bash
 uv run main.py
 ```
 
-Requires a reachable Postgres instance (`POSTGRES_URI` in `.env`) — it backs
-both the LangGraph checkpointer (in-progress run state, keyed by
-`thread_id`) and the store (cross-session findings, keyed by `user_id`).
+### API
 
-## `main.py` — entry point
+```bash
+uv run uvicorn app.api.main:app --reload --loop app.api.main:loop_factory
+```
+
+The `--loop app.api.main:loop_factory` is **required on Windows** — psycopg's
+async driver hangs (no exception) under uvicorn's default event loop there.
+See [`docs/app-api.md`](docs/app-api.md) for why. Not needed, and not used,
+inside the Docker image (Linux gets uvicorn's normal loop selection, which
+picks up `uvloop` for free).
+
+### Docker
+
+```bash
+docker build -t personal-search-assistant .
+docker run --env-file .env -p 8000:8000 personal-search-assistant
+```
+
+Runs the API only; point `POSTGRES_URI` in `.env` at a reachable Postgres
+instance (e.g. `host.docker.internal` if it's running on the host).
+
+## `main.py` — CLI entry point
 
 ### `conn_string`
 
 Module-level constant, `settings.POSTGRES_URI`. Shared connection string:
 the store and the checkpointer are two logical stores on the same Postgres
-instance.
+instance. `init_sentry()` is called at module level, before this.
 
 ### `async def main() -> None`
 
@@ -58,4 +84,11 @@ compiled graph via `build_graph(store, checkpointer)`, and hands off to
 
 ### `if __name__ == "__main__":`
 
-`asyncio.run(main())` — standard async entry-point guard.
+`asyncio.run(main(), loop_factory=lambda:
+asyncio.SelectorEventLoop(selectors.SelectSelector()))` — the explicit
+`loop_factory` is a Windows fix: psycopg's async driver needs
+`SelectorEventLoop`, not Windows' default `ProactorEventLoop` (see
+`docs/issues-and-fixes.md`, Day 6).
+
+The API's entry point, `app/api/main.py`, is documented in
+[`docs/app-api.md`](docs/app-api.md).
