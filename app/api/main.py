@@ -1,11 +1,10 @@
 """FastAPI application entry point.
 
-Mirrors ``main.py``'s connection lifecycle for the CLI: the Postgres-backed
-store and checkpointer are opened once, for the lifetime of the app process,
-via a lifespan context manager — not per-request. A resource opened inside
-``async with`` cannot outlive that block (docs/issues-and-fixes.md, Day 4
-item 5), so the graph is built once here and handed to every request via
-``app.state``.
+Uses ``app.graph.open_graph`` for the same Postgres connection lifecycle the
+CLI's ``main.py`` uses, via a lifespan context manager — not per-request. A
+resource opened inside ``async with`` cannot outlive that block
+(docs/issues-and-fixes.md, Day 4 item 5), so the graph is built once here
+and handed to every request via ``app.state``.
 
 Run with: ``uv run uvicorn app.api.main:app --reload --loop app.api.main:loop_factory``
 
@@ -18,12 +17,10 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from langgraph.store.postgres.aio import AsyncPostgresStore
 
 from app.api.routes import router
 from app.core import init_sentry, settings
-from app.graph import build_graph
+from app.graph import open_graph
 
 init_sentry()
 
@@ -50,13 +47,8 @@ def loop_factory() -> asyncio.AbstractEventLoop:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Open the store/checkpointer, build the graph, and tear both down on shutdown."""
-    async with (
-        AsyncPostgresStore.from_conn_string(settings.POSTGRES_URI) as store,
-        AsyncPostgresSaver.from_conn_string(settings.POSTGRES_URI) as checkpointer,
-    ):
-        await store.setup()
-        await checkpointer.setup()
-        app.state.graph = build_graph(store, checkpointer)
+    async with open_graph(settings.POSTGRES_URI) as graph:
+        app.state.graph = graph
         yield
 
 

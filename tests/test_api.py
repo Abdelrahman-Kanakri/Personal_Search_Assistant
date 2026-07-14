@@ -110,3 +110,17 @@ async def test_resume_run_without_pending_interrupt_returns_404(
         f"/runs/{never_started_thread_id}/resume", json={"response": "yes"}
     )
     assert response.status_code == 404
+
+
+async def test_resume_run_with_wrong_user_id_returns_403(client: httpx.AsyncClient):
+    async with client.stream(
+        "POST", "/runs/", json={"topic": "capital of Jordan", "user_id": "alice"}
+    ) as start_response:
+        thread_id = start_response.headers["x-thread-id"]
+        await _collect_sse_events(start_response)  # drain to let the pause land
+
+    response = await client.post(
+        f"/runs/{thread_id}/resume",
+        json={"response": "yes", "user_id": "mallory"},
+    )
+    assert response.status_code == 403

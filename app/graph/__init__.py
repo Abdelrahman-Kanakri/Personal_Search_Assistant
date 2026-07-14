@@ -8,6 +8,7 @@ from app.graph.edges import route_from_hitl, route_from_research
 from app.graph.nodes import hitl_node, researcher_node, save_findings_node
 from app.graph.state import AgentState
 from app.graph.build import build_graph
+from app.graph.postgres import open_graph
 
 __all__ = [
     "AgentState",
@@ -17,4 +18,5 @@ __all__ = [
     "route_from_research",
     "route_from_hitl",
     "build_graph",
+    "open_graph",
 ]

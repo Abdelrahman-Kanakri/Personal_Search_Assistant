@@ -76,7 +76,8 @@ async def resume_run(
 
     404s up front, before opening the stream, if this ``thread_id`` has no
     pending interrupt — either it never existed, already ran to completion,
-    or was already resumed.
+    or was already resumed. 403s if ``body.user_id`` doesn't match the
+    ``user_id`` the run actually started with.
     """
     config = build_run_config(str(thread_id), body.user_id)
     state = await graph.aget_state(config)
@@ -84,5 +85,15 @@ async def resume_run(
         raise HTTPException(
             status_code=404,
             detail=f"No pending HITL interrupt for thread_id={thread_id}.",
+        )
+    # `configurable.user_id` isn't preserved in state.config (LangGraph's
+    # checkpointer only keeps thread_id/checkpoint_ns/checkpoint_id there) —
+    # but it IS copied into checkpoint metadata automatically, which is the
+    # only place the run's *original* user_id can still be read back from.
+    original_user_id = state.metadata.get("user_id")
+    if body.user_id != original_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="user_id does not match the user_id this run was started with.",
         )
     return EventSourceResponse(_sse_format(resume_graph(body.response, graph, config)))

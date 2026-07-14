@@ -195,10 +195,33 @@ Return the compiled research-assistant graph.
 
   then compiles with `checkpointer=checkpointer, store=store`.
 
+## `postgres.py`
+
+The one module in this package allowed to know the backend is Postgres
+specifically — `build.py` stays deliberately backend-agnostic (see above).
+
+### `async def open_graph(conn_string: str) -> AsyncIterator[CompiledStateGraph]`
+
+Async context manager: open the Postgres store/checkpointer, build the
+graph, tear both down on exit.
+
+- **Args:** `conn_string` — `settings.POSTGRES_URI`.
+- **Yields:** the compiled `CompiledStateGraph`.
+- **Behavior:** `async with (AsyncPostgresStore.from_conn_string(conn_string)
+  as store, AsyncPostgresSaver.from_conn_string(conn_string) as
+  checkpointer):`, `.setup()` on both, `yield build_graph(store,
+  checkpointer)`. Extracted so `main.py` (CLI) and `app/api/main.py`'s
+  `lifespan` (API) stop opening the identical connection pair
+  independently — previously flagged as a known duplication (see
+  `issues-and-fixes.md`), fixed once both entry points existed and the
+  duplication was actually visible side-by-side.
+
 ## `__init__.py`
 
 Public interface for the package. Re-exports `AgentState`, `researcher_node`,
 `hitl_node`, `save_findings_node`, `route_from_research`, `route_from_hitl`,
-and `build_graph` — import `build_graph` to get the compiled, ready-to-run
-graph; the other exports exist mainly for testing individual components in
-isolation (see [`tests.md`](tests.md)).
+`build_graph`, and `open_graph` — import `open_graph` for the ready-to-run,
+connection-managed graph (what both entry points use); `build_graph` if you
+already have an open store/checkpointer (what tests use, with
+`InMemoryStore`/`InMemorySaver`); the node/edge exports exist mainly for
+testing individual components in isolation (see [`tests.md`](tests.md)).

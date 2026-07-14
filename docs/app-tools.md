@@ -31,7 +31,7 @@ Search the web and return a list of result snippets with their source URLs.
 
 Persists research findings to the LangGraph cross-session store.
 
-### `def save_findings(findings: list[dict[str, str]], store: Annotated[Any, InjectedStore], config: RunnableConfig) -> str`
+### `async def save_findings(findings: list[dict[str, str]], store: Annotated[Any, InjectedStore], config: RunnableConfig) -> str`
 
 Write a batch of research findings to the user's persistent store
 namespace.

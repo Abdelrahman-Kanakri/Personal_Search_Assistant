@@ -10,33 +10,22 @@ import asyncio
 from app.cli import run_cli
 
 from app.core import init_sentry, settings
-from app.graph import build_graph
-from langgraph.store.postgres.aio import AsyncPostgresStore
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from app.graph import open_graph
 
-# Same Postgres instance backs both the store and the checkpointer; setup()
-# is idempotent (CREATE TABLE IF NOT EXISTS-style) so it's safe on every run.
-conn_string = settings.POSTGRES_URI
 init_sentry()
 
 
 async def main() -> None:
     """Open the store/checkpointer, build the graph, and run the CLI loop.
 
-    ``store`` persists research findings across sessions (keyed by user_id);
-    ``checkpointer`` persists in-progress graph state per thread_id so a run
-    can be paused (HITL interrupt) and resumed. Both are async context
-    managers so their connections are closed cleanly on exit, including on
-    ``KeyboardInterrupt``/exceptions.
+    ``open_graph`` persists research findings across sessions (keyed by
+    user_id) and in-progress graph state per thread_id (so a run can be
+    paused on a HITL interrupt and resumed) — see
+    ``app/graph/postgres.py``, shared with the API's ``lifespan``. It's an
+    async context manager so both Postgres connections close cleanly on
+    exit, including on ``KeyboardInterrupt``/exceptions.
     """
-    async with (
-        AsyncPostgresStore.from_conn_string(conn_string) as store,
-        AsyncPostgresSaver.from_conn_string(conn_string) as checkpointer,
-    ):
-        # Create the underlying Postgres tables/indexes on first run.
-        await store.setup()
-        await checkpointer.setup()
-        graph = build_graph(store, checkpointer)
+    async with open_graph(settings.POSTGRES_URI) as graph:
         await run_cli(graph)
 
 

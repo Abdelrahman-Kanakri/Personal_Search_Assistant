@@ -179,3 +179,11 @@ path (see `route_from_hitl`), so there's nothing else to stream.
 `POST .../resume` against a `thread_id` that was never started. Asserts
 `404` — covers the `get_graph`/`aget_state` pre-check in `resume_run`, not
 just the happy path.
+
+### `async def test_resume_run_with_wrong_user_id_returns_403(client)`
+
+Starts a run as `user_id="alice"`, then resumes the same `thread_id` with
+`user_id="mallory"`. Asserts `403` — covers `resume_run`'s check against
+`state.metadata["user_id"]` (the checkpoint's own recorded value, not
+whatever the client claims), guarding against resuming — and so writing
+`save_findings` into — another user's thread.

@@ -552,3 +552,50 @@ files (`app/api/`, `app/schemas/`, `app/streaming/`).
    `docs/architecture.md`'s (now-removed) `app/memory/` entry predicted
    exactly this moment as the right trigger for extracting a shared helper;
    noted as a legitimate follow-up rather than actioned in this session.
+
+---
+
+## Gap closures + Docker verification (2026-07-14, later same day)
+
+Closed both known gaps from the entry above, plus actually ran what had
+only been reviewed by reading.
+
+1. **Closed item 9 (connection-setup duplication):** added
+   `app/graph/postgres.py`'s `open_graph(conn_string)` — an async context
+   manager wrapping the `AsyncPostgresStore`/`AsyncPostgresSaver`/`setup()`/
+   `build_graph` sequence. `build.py` itself stays deliberately
+   Postgres-agnostic (`BaseStore`/`BaseCheckpointSaver`; Day 4's fix), so
+   this couldn't live there — it's the one module in `app/graph/` allowed
+   to import the concrete Postgres classes. `main.py` and `app/api/main.py`
+   both switched to it.
+2. **Closed item 8 (`user_id` cross-check on resume):** first instinct was
+   to derive the original `user_id` from `state.config` after
+   `graph.aget_state(config)` — **wrong**, verified empirically before
+   writing the fix: `state.config["configurable"]` only ever contains
+   `thread_id`/`checkpoint_ns`/`checkpoint_id`, LangGraph's checkpointer
+   doesn't preserve arbitrary `configurable` keys there. `state.metadata`
+   does, though — every non-reserved `configurable` key (here, `user_id`,
+   set by `build_run_config`) is copied into checkpoint metadata
+   automatically. **Fix:** `resume_run` now compares `body.user_id` against
+   `state.metadata.get("user_id")` and raises `403` on mismatch, checked
+   right alongside the existing `404` pending-interrupt check (same
+   `aget_state` call, no extra round trip). Added
+   `test_resume_run_with_wrong_user_id_returns_403` to cover it.
+3. **Docker build had never actually been run — it built and worked on the
+   first real attempt**, but only after Docker Desktop itself needed to be
+   started first (`docker ps` failed with a named-pipe connection error
+   until `Docker Desktop.exe` was launched and given ~30s to come up).
+   `uvloop` confirmed present in the built image's dependency list,
+   confirming the `Dockerfile`'s deliberate choice not to pass
+   `--loop app.api.main:loop_factory` in `CMD` (that factory's non-Windows
+   branch is a plain `asyncio.new_event_loop()`, which would have silently
+   discarded `uvloop` in the container).
+4. **Smoke-testing the built image against the real `.env` failed exactly
+   as expected, not as a bug:** `psycopg.OperationalError: connection ...
+   to server at "127.0.0.1"` — `.env`'s `POSTGRES_URI` points at
+   `localhost`, which inside a container resolves to the container itself,
+   not the host running Postgres. Already documented in `README.md`'s
+   Docker section (`host.docker.internal`) before this run even happened;
+   this confirmed the documented caveat is accurate rather than aspirational,
+   without needing to read/expose the real connection string to do so
+   (`docker run --env-file .env ...` never required seeing its contents).

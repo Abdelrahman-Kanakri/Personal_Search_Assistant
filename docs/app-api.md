@@ -47,21 +47,16 @@ Uvicorn `--loop` hook, required on Windows.
 
 Open the store/checkpointer, build the graph, tear both down on shutdown.
 
-- **Behavior:** mirrors `main.py`'s CLI lifecycle — `async with
-  (AsyncPostgresStore.from_conn_string(...) as store,
-  AsyncPostgresSaver.from_conn_string(...) as checkpointer):`, `setup()` on
-  both, `build_graph(store, checkpointer)`, stored on `app.state.graph`,
-  then `yield`. A resource opened via `async with` can't outlive that block
-  (Day 4's most important lesson — see `issues-and-fixes.md`), so the graph
-  is built **once**, for the app's lifetime, not per-request — every
-  request reads the same graph via the `get_graph` dependency
+- **Behavior:** `async with open_graph(settings.POSTGRES_URI) as graph:
+  app.state.graph = graph; yield`. `open_graph` (`app/graph/postgres.py`) is
+  the same helper `main.py`'s CLI entry point uses — previously each entry
+  point opened `AsyncPostgresStore`/`AsyncPostgresSaver` independently; see
+  `app-graph.md`'s `postgres.py` section for why that duplication existed
+  and when it got fixed. A resource opened via `async with` can't outlive
+  that block (Day 4's most important lesson — see `issues-and-fixes.md`),
+  so the graph is built **once**, for the app's lifetime, not per-request —
+  every request reads the same graph via the `get_graph` dependency
   (`routes.py`).
-- **Known duplication:** this connection-opening block is now written twice
-  — here and in the root `main.py`. `docs/architecture.md`'s `app/memory/`
-  entry (before that stub package was removed) predicted this exact
-  moment as the trigger for pulling store/checkpointer construction into a
-  shared helper. Not yet done — flagged here as a legitimate follow-up, not
-  silently accepted as fine.
 
 ### `app`
 
@@ -115,14 +110,24 @@ Resume a run paused at a HITL interrupt and stream its output as SSE.
 
 - **Behavior:** builds the config via `build_run_config(str(thread_id),
   body.user_id)` (no `topic` — unknown at resume time), then
-  `state = await graph.aget_state(config)`. If `not (state.tasks and
-  state.tasks[0].interrupts)`, raises `HTTPException(404, ...)` **before**
-  opening the stream — covers three cases identically: `thread_id` never
-  existed, already ran to completion, or was already resumed. This check
-  has to happen up front; `resume_graph` itself has undefined behavior if
-  called against a thread with no pending interrupt, and once the stream
-  has started there's no way to turn it into a proper 404 anymore (same
-  reasoning as `_sse_format`'s exception handling above).
+  `state = await graph.aget_state(config)`. Two checks before opening the
+  stream, both because there's no way to turn a failure into a proper error
+  response once streaming has started (same reasoning as `_sse_format`'s
+  exception handling above):
+  1. If `not (state.tasks and state.tasks[0].interrupts)`, raises
+     `HTTPException(404, ...)` — covers three cases identically:
+     `thread_id` never existed, already ran to completion, or was already
+     resumed.
+  2. If `body.user_id != state.metadata.get("user_id")`, raises
+     `HTTPException(403, ...)`. `configurable.user_id` is **not** preserved
+     in `state.config` — LangGraph's checkpointer only keeps
+     `thread_id`/`checkpoint_ns`/`checkpoint_id` there — but every
+     non-reserved `configurable` key **is** copied into checkpoint
+     `metadata` automatically, which is what makes this check possible:
+     `state.metadata["user_id"]` is the authoritative value from when the
+     run actually started, independent of whatever the client claims on
+     resume. Verified empirically (not assumed) before relying on it —
+     `state.config`'s omission of `user_id` is easy to expect wrongly.
 
 ## `__init__.py`
 

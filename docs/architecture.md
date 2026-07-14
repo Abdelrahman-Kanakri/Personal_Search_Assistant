@@ -6,10 +6,11 @@ after time away, before diving into any one file.
 
 ## Entry points
 
-Two now — the CLI (`main.py`) and the API (`app/api/main.py`). Both open
-their own Postgres store/checkpointer via `async with` and build their own
-graph; see `app/api/main.py`'s doc note below for the resulting duplication
-this created, flagged but not yet resolved.
+Two now — the CLI (`main.py`) and the API (`app/api/main.py`). Both open a
+Postgres store/checkpointer and build a graph via the shared
+`app.graph.open_graph` helper (`app/graph/postgres.py`) — extracted after
+the API's `lifespan` made the duplication of that connection-opening block
+actually visible side-by-side; see `app-graph.md`'s `postgres.py` section.
 
 ### `main.py`
 Owns the Postgres connection lifecycle for the whole CLI session. Calls
@@ -241,8 +242,8 @@ Full Phase 3 (per `mentor-prompt.md`) test suite — see
 - `tests/test_api.py` — Phase 4 integration tests for `app/api/routes.py`,
   driven over HTTP via `httpx.AsyncClient` + `ASGITransport`, with
   `get_graph` overridden to a test graph so Postgres/the real `lifespan`
-  never run. Covers start→interrupt, resume→done, and resume-with-no-
-  pending-interrupt→404.
+  never run. Covers start→interrupt, resume→done, resume-with-no-
+  pending-interrupt→404, and resume-with-mismatched-user_id→403.
 
 ## Deployment
 
