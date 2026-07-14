@@ -40,6 +40,7 @@ app fails loudly rather than running half-configured.
 | `POSTGRES_URI` | `str` | `POSTGRES_URI` | Connection string for the LangGraph store + checkpointer |
 | `OPENSSL_CONF` | `str` | `OPENSSL_CONF` | Workaround for a pyarrow/curl OpenSSL pkcs11-engine segfault on this host — forces Arrow's bundled OpenSSL to skip the system `openssl.cnf` |
 | `TAVILY_API_KEY` | `str` | `TAVILY_API_KEY` | Tavily web-search API auth |
+| `SENTRY_DSN` | `str \| None` | `SENTRY_DSN` | Sentry error-tracking DSN. **Optional** — the only field with `None` as a default rather than `...`; unset leaves `init_sentry()` a documented no-op, so dev environments without a DSN work unchanged. |
 
 ### `settings`
 
@@ -49,6 +50,51 @@ time. Importing this module also has the side effect of copying
 libraries (`pyarrow`, LangSmith's tracing client) only read env vars, not
 `pydantic-settings` objects. `pydantic-settings` does **not** set
 `os.environ` on its own, so the values have to be pushed in explicitly.
+
+## `observability.py`
+
+Sentry setup, shared by both entry points.
+
+### `def init_sentry() -> None`
+
+Initialize Sentry if `SENTRY_DSN` is configured.
+
+- **Args:** none.
+- **Returns:** `None`.
+- **Behavior:** calls `sentry_sdk.init(dsn=settings.SENTRY_DSN,
+  traces_sample_rate=1.0)`. `sentry_sdk.init(dsn=None)` is a documented
+  no-op, so this is safe to call unconditionally — no `if settings.SENTRY_DSN`
+  guard needed. Called once, as early as possible, from both `main.py` (CLI)
+  and `app/api/main.py` (API), so crashes on either surface get reported.
+
+## `run_config.py`
+
+Shared `RunnableConfig` construction for the CLI and API entry points —
+LangSmith tagging only needs to be right once.
+
+### `def build_run_config(thread_id: str, user_id: str, topic: str | None = None) -> RunnableConfig`
+
+Build the config passed to every graph invocation for one run.
+
+- **Args:**
+  - `thread_id`: identifies the checkpointer's saved state for this run.
+  - `user_id`: scopes the store namespace `save_findings` writes to.
+  - `topic`: the research topic. Only known when a run **starts**, not on
+    resume — optional, defaults to `None`.
+- **Returns:** a `RunnableConfig` with `thread_id`/`user_id` under
+  `configurable` (where LangGraph's checkpointer and `save_findings` read
+  them from), and `tags=[f"user:{user_id}"]` / `metadata={"topic": topic}`
+  at the **top level** — that's what LangSmith reads to label a trace.
+  `metadata` is `{}` when `topic` is `None`, not `{"topic": None}`.
+- **Used by:** `app/cli.py`'s `run_cli` and `app/api/routes.py`'s
+  `start_run`/`resume_run` — both previously built this dict inline and
+  independently; unifying it here means the two entry points can't drift.
+
+## `__init__.py`
+
+Re-exports `settings`, `get_logger`, `init_sentry`, and `build_run_config` —
+the only import path the rest of the app should use (`from app.core import
+settings`, never `from app.core.config import Settings` directly).
 
 ## `logging.py`
 
@@ -102,9 +148,3 @@ Get a JSON-structured logger, optionally isolated to its own file.
     `logs/log.log`.
 - **Returns:** a `structlog` `BoundLogger` — calling `.info()` / `.error()`
   / etc. on it renders JSON per the pipeline above.
-
-## `__init__.py`
-
-Re-exports `settings` (from `config`) and `get_logger` (from `logging`) —
-the two names the rest of the app imports: `from app.core import settings,
-get_logger`.

@@ -9,7 +9,7 @@ import selectors
 import asyncio
 from app.cli import run_cli
 
-from app.core import settings
+from app.core import init_sentry, settings
 from app.graph import build_graph
 from langgraph.store.postgres.aio import AsyncPostgresStore
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -17,6 +17,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 # Same Postgres instance backs both the store and the checkpointer; setup()
 # is idempotent (CREATE TABLE IF NOT EXISTS-style) so it's safe on every run.
 conn_string = settings.POSTGRES_URI
+init_sentry()
 
 
 async def main() -> None:

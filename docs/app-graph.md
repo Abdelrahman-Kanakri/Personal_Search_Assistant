@@ -165,24 +165,24 @@ Decide what follows the human-review interrupt.
 
 ## `build.py`
 
-Assembles and compiles the graph. The module-level `graph` pattern (see
-`app/graph/__init__.py`) means building at import time surfaces missing
-environment variables or mis-wired edges immediately on startup rather than
-on the first user request.
+Assembles and compiles the graph. Takes an already-open checkpointer and
+store — the caller (`main.py` for the CLI, `app/api/main.py`'s lifespan for
+the API) owns opening and closing both via `async with`.
 
-### `conn_string`
-
-Module-level constant, `settings.POSTGRES_URI`.
-
-### `def build_graph(store: AsyncPostgresStore, checkpointer: AsyncPostgresSaver) -> CompiledStateGraph`
+### `def build_graph(store: BaseStore, checkpointer: BaseCheckpointSaver) -> CompiledStateGraph`
 
 Return the compiled research-assistant graph.
 
 - **Args:**
-  - `store`: async Postgres store for cross-session findings, injected into
-    `researcher_node` and `save_findings_node`.
-  - `checkpointer`: async Postgres checkpointer for per-thread run state,
-    enabling HITL pause/resume.
+  - `store`: cross-session findings store, injected into `researcher_node`
+    and `save_findings_node`. Typed against the abstract `BaseStore`, not
+    the concrete `AsyncPostgresStore` — the function only forwards it into
+    `builder.compile(...)`, never calling a Postgres-specific method, so
+    typing it abstractly costs nothing and buys back testability (an
+    `InMemoryStore` works identically in tests) and backend-swap
+    flexibility.
+  - `checkpointer`: per-thread run-state checkpointer enabling HITL
+    pause/resume, typed against `BaseCheckpointSaver` for the same reason.
 - **Returns:** the compiled `CompiledStateGraph`.
 - **Behavior:** builds a `StateGraph(AgentState)` with four nodes
   (`researcher_node`, `hitl_node`, `save_findings`, and `web_search` wrapped
