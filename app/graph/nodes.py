@@ -15,9 +15,11 @@ from langchain_mistralai import ChatMistralAI
 from langgraph.store.base import BaseStore
 from langgraph.types import interrupt
 
-from app.core import settings
+from app.core import get_logger, settings
 from app.graph.state import AgentState
 from app.tools import save_findings, web_search
+
+logger = get_logger(__name__)
 
 # ── LLM Configuration ─────────────────────────────────────────────────────────────────────
 os.environ["MISTRAL_API_KEY"] = settings.MISTRAL_API_KEY
@@ -131,7 +133,8 @@ async def save_findings_node(
             "timestamp": str(datetime.now()),
         }
     ]
-    print(await save_findings(findings=findings, store=store, config=config))
+    result = await save_findings(findings=findings, store=store, config=config)
+    logger.info("findings_saved", result=result)
     return {}
 
 
@@ -161,6 +164,7 @@ async def researcher_node(
     user_id = config["configurable"]["user_id"]
     namespace = (user_id, "findings")
     existing_memory = await store.asearch(namespace)
+    logger.info("researcher_turn_start", topic=topic, memory_hits=len(existing_memory))
 
     # if there an existing memory, we will use it to inform the LLM's response. Otherwise, we will proceed with a web search.
     if existing_memory:
@@ -181,6 +185,7 @@ async def researcher_node(
             + [HumanMessage(content=f"Search about this topic: {topic} ")]
             + state["messages"]
         )
+    logger.info("researcher_turn_end", requested_tool_calls=bool(response.tool_calls))
     return {"messages": [response]}
 
 
@@ -209,9 +214,11 @@ def hitl_node(state: AgentState, config: RunnableConfig) -> dict:
         approved = interrupt(question)
         # Yes branch
         if approved in ("yes", "y"):
+            logger.info("hitl_decision", topic=topic, decision="yes")
             return {"human_response": approved}
         # Edit branch
         elif approved in ("edit", "e"):
+            logger.info("hitl_decision", topic=topic, decision="edit")
             # Second interrupt() call to get the human's refinements to the findings.
             user_input = interrupt(
                 "Please provide your refinements to the findings, along side with the user feedback:"
@@ -226,6 +233,7 @@ def hitl_node(state: AgentState, config: RunnableConfig) -> dict:
             }
         # No branch
         elif approved in ("no", "n"):
+            logger.info("hitl_decision", topic=topic, decision="no")
             return {
                 "human_response": approved,
                 "messages": [
@@ -236,5 +244,6 @@ def hitl_node(state: AgentState, config: RunnableConfig) -> dict:
             }
         # Invalid input branch (Clarification prompt)
         else:
+            logger.warning("hitl_invalid_input", topic=topic, input=approved)
             clarifying_message = f"Invalid input '{approved}'. Please reply 'yes' to save, 'no' to search again, or 'edit' to refine the answer."
             question = clarifying_message

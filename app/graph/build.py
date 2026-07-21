@@ -13,10 +13,13 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
 
+from app.core import get_logger
 from app.graph.edges import route_from_hitl, route_from_research
 from app.graph.nodes import hitl_node, researcher_node, save_findings_node
 from app.graph.state import AgentState
 from app.tools import web_search
+
+logger = get_logger(__name__)
 
 
 # ── Graph Builder ─────────────────────────────────────────────────────────────────────
@@ -40,4 +43,5 @@ def build_graph(
 
     # ── Compile the Graph  ──
     graph = builder.compile(checkpointer=checkpointer, store=store)
+    logger.info("graph_compiled")
     return graph

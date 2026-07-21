@@ -16,10 +16,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from langgraph.graph.state import CompiledStateGraph
 from sse_starlette.sse import EventSourceResponse
 
-from app.core import build_run_config
+from app.core import build_run_config, get_logger
 from app.schemas.models import Event, ResumeRunRequest, StartRunRequest
 from app.streaming.events import resume_graph, stream_events
 
+logger = get_logger(__name__)
 router = APIRouter(prefix="/runs", tags=["runs"])
 
 
@@ -44,6 +45,7 @@ async def _sse_format(
             event = Event(type=kind, content=payload)
             yield {"event": kind, "data": event.model_dump_json()}
     except Exception as exc:
+        logger.error("sse_stream_error", error=str(exc))
         error_event = Event(type="error", content=str(exc))
         yield {"event": "error", "data": error_event.model_dump_json()}
 
@@ -59,6 +61,9 @@ async def start_run(
     for every HITL interrupt this run produces.
     """
     thread_id = str(uuid.uuid4())
+    logger.info(
+        "start_run_request", thread_id=thread_id, user_id=body.user_id, topic=body.topic
+    )
     config = build_run_config(thread_id, body.user_id, body.topic)
     return EventSourceResponse(
         _sse_format(stream_events(body.topic, graph, config)),
@@ -79,9 +84,11 @@ async def resume_run(
     or was already resumed. 403s if ``body.user_id`` doesn't match the
     ``user_id`` the run actually started with.
     """
+    logger.info("resume_run_request", thread_id=str(thread_id), user_id=body.user_id)
     config = build_run_config(str(thread_id), body.user_id)
     state = await graph.aget_state(config)
     if not (state.tasks and state.tasks[0].interrupts):
+        logger.warning("resume_run_no_pending_interrupt", thread_id=str(thread_id))
         raise HTTPException(
             status_code=404,
             detail=f"No pending HITL interrupt for thread_id={thread_id}.",
@@ -92,6 +99,11 @@ async def resume_run(
     # only place the run's *original* user_id can still be read back from.
     original_user_id = state.metadata.get("user_id")
     if body.user_id != original_user_id:
+        logger.warning(
+            "resume_run_user_mismatch",
+            thread_id=str(thread_id),
+            attempted_user_id=body.user_id,
+        )
         raise HTTPException(
             status_code=403,
             detail="user_id does not match the user_id this run was started with.",

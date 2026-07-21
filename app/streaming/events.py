@@ -10,6 +10,10 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
 from langgraph.graph.state import CompiledStateGraph
 
+from app.core import bind_run_context, clear_run_context, get_logger
+
+logger = get_logger(__name__)
+
 
 async def stream_events(
     user_input: str, graph: CompiledStateGraph, config: RunnableConfig
@@ -29,25 +33,35 @@ async def stream_events(
             -   (the interrupt payload for "interrupt" events).
             -   (the token string for "token" events).
     """
-    async for event in graph.astream_events(
-        {"topic": user_input, "messages": []},
-        config,
-        version="v2",
-    ):
-        if event["event"] == "on_chat_model_stream":
-            chunk = event["data"]["chunk"]
-            if isinstance(chunk.content, str) and chunk.content:
-                yield ("token", chunk.content)
-            elif isinstance(chunk.content, list):
-                for part in chunk.content:
-                    if isinstance(part, dict) and part.get("type") == "text":
-                        yield ("token", part["text"])
+    bind_run_context(
+        thread_id=config["configurable"]["thread_id"],
+        user_id=config["configurable"]["user_id"],
+    )
+    try:
+        logger.info("run_started", topic=user_input)
+        async for event in graph.astream_events(
+            {"topic": user_input, "messages": []},
+            config,
+            version="v2",
+        ):
+            if event["event"] == "on_chat_model_stream":
+                chunk = event["data"]["chunk"]
+                if isinstance(chunk.content, str) and chunk.content:
+                    yield ("token", chunk.content)
+                elif isinstance(chunk.content, list):
+                    for part in chunk.content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            yield ("token", part["text"])
 
-    state = await graph.aget_state(config)
-    if state.tasks and state.tasks[0].interrupts:
-        yield ("interrupt", state.tasks[0].interrupts[0].value)
-    else:
-        yield ("done", None)
+        state = await graph.aget_state(config)
+        if state.tasks and state.tasks[0].interrupts:
+            logger.info("run_interrupted")
+            yield ("interrupt", state.tasks[0].interrupts[0].value)
+        else:
+            logger.info("run_completed")
+            yield ("done", None)
+    finally:
+        clear_run_context()
 
 
 async def resume_graph(
@@ -73,19 +87,29 @@ async def resume_graph(
             -   (the interrupt payload for "interrupt" events).
             -   (the token string for "token" events).
     """
-    async for event in graph.astream_events(
-        Command(resume=human_response), config, version="v2"
-    ):
-        if event["event"] == "on_chat_model_stream":
-            chunk = event["data"]["chunk"]
-            if isinstance(chunk.content, str) and chunk.content:
-                yield ("token", chunk.content)
-            elif isinstance(chunk.content, list):
-                for part in chunk.content:
-                    if isinstance(part, dict) and part.get("type") == "text":
-                        yield ("token", part["text"])
-    state = await graph.aget_state(config)
-    if state.tasks and state.tasks[0].interrupts:
-        yield ("interrupt", state.tasks[0].interrupts[0].value)
-    else:
-        yield ("done", None)
+    bind_run_context(
+        thread_id=config["configurable"]["thread_id"],
+        user_id=config["configurable"]["user_id"],
+    )
+    try:
+        logger.info("run_resumed")
+        async for event in graph.astream_events(
+            Command(resume=human_response), config, version="v2"
+        ):
+            if event["event"] == "on_chat_model_stream":
+                chunk = event["data"]["chunk"]
+                if isinstance(chunk.content, str) and chunk.content:
+                    yield ("token", chunk.content)
+                elif isinstance(chunk.content, list):
+                    for part in chunk.content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            yield ("token", part["text"])
+        state = await graph.aget_state(config)
+        if state.tasks and state.tasks[0].interrupts:
+            logger.info("run_interrupted")
+            yield ("interrupt", state.tasks[0].interrupts[0].value)
+        else:
+            logger.info("run_completed")
+            yield ("done", None)
+    finally:
+        clear_run_context()

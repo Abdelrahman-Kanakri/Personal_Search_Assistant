@@ -14,7 +14,10 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.postgres.aio import AsyncPostgresStore
 
+from app.core import get_logger
 from app.graph.build import build_graph
+
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
@@ -32,4 +35,6 @@ async def open_graph(conn_string: str) -> AsyncIterator[CompiledStateGraph]:
     ):
         await store.setup()
         await checkpointer.setup()
+        logger.info("postgres_backend_ready")
         yield build_graph(store, checkpointer)
+    logger.info("postgres_backend_closed")

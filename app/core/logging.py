@@ -71,3 +71,21 @@ def get_logger(name: str | None = None) -> FilteringBoundLogger:
             stdlib_logger.propagate = False  # Prevent double logging to root logger
 
     return structlog.get_logger(name)
+
+
+# ── Run-scoped context binding ──────────────────────────────────────────────
+
+
+def bind_run_context(*, thread_id: str, user_id: str) -> None:
+    """Attach ``thread_id``/``user_id`` to every log line until ``clear_run_context()``.
+
+    These are the same identifiers ``build_run_config`` tags LangSmith traces
+    with (see ``app.core.run_config``), so a log line and a LangSmith trace
+    for the same run can be cross-referenced by ``thread_id``.
+    """
+    structlog.contextvars.bind_contextvars(thread_id=thread_id, user_id=user_id)
+
+
+def clear_run_context() -> None:
+    """Clear context bound by ``bind_run_context``. Call in a ``finally`` block."""
+    structlog.contextvars.clear_contextvars()

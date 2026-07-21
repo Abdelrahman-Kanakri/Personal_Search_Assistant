@@ -12,8 +12,10 @@ import uuid
 
 from langgraph.graph.state import CompiledStateGraph
 from app.streaming.events import resume_graph, stream_events
-from app.core import build_run_config, settings
+from app.core import build_run_config, get_logger, settings
 import os
+
+logger = get_logger(__name__)
 
 os.environ["OPENSSL_CONF"] = settings.OPENSSL_CONF
 os.environ["LANGSMITH_API_KEY"] = settings.LANGSMITH_API_KEY
@@ -34,6 +36,7 @@ async def run_cli(graph: CompiledStateGraph) -> None:
 
         # Fresh thread_id per run keeps checkpointer state independent across topics.
         thread_id = str(uuid.uuid4())
+        logger.info("cli_run_started", thread_id=thread_id, topic=user_input)
         config = build_run_config(thread_id, USER_ID, user_input)
 
         # stream_result is non-None only when the graph pauses at a HITL interrupt.
@@ -50,6 +53,7 @@ async def run_cli(graph: CompiledStateGraph) -> None:
                     stream_result = resume_graph(human_response, graph, config)
                 elif kind == "done":
                     done_flag = True
+                    logger.info("cli_run_completed", thread_id=thread_id)
                     print("\n\nResearch run completed.\n")
                     break
 

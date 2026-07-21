@@ -19,9 +19,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.routes import router
-from app.core import init_sentry, settings
+from app.core import get_logger, init_sentry, settings
 from app.graph import open_graph
 
+logger = get_logger(__name__)
 init_sentry()
 
 
@@ -49,7 +50,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Open the store/checkpointer, build the graph, and tear both down on shutdown."""
     async with open_graph(settings.POSTGRES_URI) as graph:
         app.state.graph = graph
+        logger.info("api_startup_complete")
         yield
+    logger.info("api_shutdown_complete")
 
 
 app = FastAPI(title="Personal Search Assistant API", lifespan=lifespan)

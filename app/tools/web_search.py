@@ -5,7 +5,9 @@ import os
 from langchain.tools import tool
 from langchain_tavily import TavilySearch
 
-from app.core import settings
+from app.core import get_logger, settings
+
+logger = get_logger(__name__)
 
 os.environ["TAVILY_API_KEY"] = settings.TAVILY_API_KEY
 
@@ -23,6 +25,8 @@ def web_search(query: str, max_results: int = 5) -> list[dict[str, str]]:
     """
     searcher = TavilySearch(max_results=max_results)
     results = searcher.invoke({"query": query})
-    return [
+    parsed = [
         {"content": item["content"], "url": item["url"]} for item in results["results"]
     ]
+    logger.info("web_search", query=query, result_count=len(parsed))
+    return parsed
